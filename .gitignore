@@ -4,8 +4,9 @@ __pycache__/
 *$py.class
 
 # Mac
-.idea
+.idea/
 .DS_Store
+data/
 
 # C extensions
 *.so
