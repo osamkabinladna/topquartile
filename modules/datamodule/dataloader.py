@@ -47,20 +47,18 @@ class BloombergDataloader:
     def _load_covariates(self):
         # TODO: Minta sophie data yg bersih bener bener bersih dari awal.
         ticker_df = pd.read_csv(self.covariates_path,
-                                skiprows=3,
-                                usecols= lambda x: not x.startswith('Unnamed') and len(x.split('.')) < 2)
+                                skiprows=3)
+
         tickernames = ticker_df.columns.tolist()
+        tickernames = [ticker for ticker in tickernames if not ticker.startswith('Unnamed')]
 
         covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0)
+        covariates.dropna(inplace=True, axis=0, how='all')
+        covariates.dropna(inplace=True, axis=1, how='all')
 
-
-        # Lots of NaN columns and NaN rows
-        covariates.dropna(how='all', inplace=True, axis=1)
-        covariates.dropna(how='all', inplace=True, axis=0)
         covariates.index = pd.to_datetime(covariates.index, format='mixed')
 
         col_dict = defaultdict(list)
-
         for col in covariates.columns:
             number = self._get_number(col)
             col_dict[number].append(col)
@@ -68,12 +66,26 @@ class BloombergDataloader:
         max_number = max(col_dict.keys())
         self.covlist = [None] * (max_number + 1)
 
-        for number in range(max_number + 1):
-            cols = col_dict.get(number, [])
-            if cols:
-                self.covlist[number] = self.covariates[cols]
+        tickernames = [ticker[:4] for ticker in tickernames] # Becos duplicates show as such "IMJS IJ EQUITY:1"
+
+        first_occurrence_index = {}
+        duplicate_indices = []
+
+        for index, ticker in enumerate(tickernames):
+            if ticker in first_occurrence_index:
+                duplicate_indices.append(index)
             else:
-                self.covlist[number] = pd.DataFrame()
+                first_occurrence_index[ticker] = index
+
+        unique_tickernames = []
+        unique_covlist = []
+        for index, ticker in enumerate(tickernames):
+            if index not in duplicate_indices:
+                unique_tickernames.append(ticker)
+                unique_covlist.append(self.covlist[index])
+
+        self.covlist = unique_covlist
+        self.tickernames = unique_tickernames
 
         for idx, cov in enumerate(self.covlist):
             cov.loc[:, 'Ticker'] = tickernames[idx]
