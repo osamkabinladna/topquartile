@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import List, Tuple, Optional, Union, Dict
+from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
 import warnings
 
@@ -64,13 +64,14 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.price_vs_sma = price_vs_sma
         self.turnover = turnover
         self.beta = beta
+        self.required_base = set()
 
 
-        required_base = ['PX_LAST']
+        self.required_base.update(['PX_LAST'])
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
-            required_base.append('VOLUME')
+            self.required_base.update('VOLUME')
 
-        missing_base = [col for col in required_base if col not in self.df.columns]
+        missing_base = [col for col in self.required_base if col not in self.df.columns]
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
@@ -257,28 +258,28 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.levered_roa = levered_roa
         self.eps_growth = eps_growth
 
-        required_base = set()
+        self.required_base = set()
         if self.pe_ratio or self.earnings_yield or self.pe_band:
-            required_base.update(['PX_LAST', 'IS_EPS'])
+            self.required_base.update(['PX_LAST', 'IS_EPS'])
         if self.debt_to_assets or self.debt_to_capital or self.equity_ratio or self.market_to_book:
-            required_base.update(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
+            self.required_base.update(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
         if self.market_to_book:
-            required_base.add('CUR_MKT_CAP')
+            self.required_base.add('CUR_MKT_CAP')
         if self.adjusted_roic:
-            required_base.update(['OPERATING_ROIC', 'WACC'])
+            self.required_base.update(['OPERATING_ROIC', 'WACC'])
         if self.operating_efficiency:
-            required_base.update(['OPER_MARGIN', 'SALES_GROWTH'])
+            self.required_base.update(['OPER_MARGIN', 'SALES_GROWTH'])
         if self.levered_roa:
-            required_base.update(['RETURN_ON_ASSET', 'TOT_DEBT_TO_TOT_EQY'])
+            self.required_base.update(['RETURN_ON_ASSET', 'TOT_DEBT_TO_TOT_EQY'])
         if self.eps_growth:
-            required_base.add('IS_EPS')
+            self.required_base.add('IS_EPS')
 
         if self.pe_band is not None:
-            required_base.update(['PX_LAST', 'IS_EPS'])
+            self.required_base.update(['PX_LAST', 'IS_EPS'])
             if not self.pe_ratio:
                 warnings.warn("pe_band requested without pe_ratio=True. PE Ratio will be calculated but not added unless pe_ratio=True.", UserWarning)
 
-        missing_base = [col for col in required_base if col not in self.df.columns]
+        missing_base = [col for col in self.required_base if col not in self.df.columns]
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame for fundamental calculations: {missing_base}")
 
