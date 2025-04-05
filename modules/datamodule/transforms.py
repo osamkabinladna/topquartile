@@ -1,53 +1,53 @@
 import pandas as pd
 import numpy as np
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union, Dict
 from abc import ABC, abstractmethod
+import warnings
+
 
 class CovariateTransform(ABC):
-    def __init__(self, df:pd.DataFrame):
+    def __init__(self, df: pd.DataFrame):
         if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
-        self.df = df.copy()
+            raise TypeError("Input 'df' must be a pandas DataFrame.")
+        if 'ticker' not in df.columns:
+            raise ValueError("Input DataFrame must contain a 'ticker' column.")
+        self.df = df.sort_values(by=['ticker', df.index.name or 'index']).copy()
         self.original_columns = list(df.columns)
-        self.included_features = ['PX_LAST']
-
-    def include_features(self, feature: Union[str, List[str]]):
-        if feature not in self.original_columns:
-            raise ValueError(f"Feature {feature} not found in dataframe")
-        if feature not in self.included_features:
-            if isinstance(feature, list):
-                for feat in feature:
-                    self.included_features.append(feat)
-            else:
-                self.included_features.append(feature)
 
     @abstractmethod
     def transform(self) -> pd.DataFrame:
         pass
 
+
 class TechnicalCovariateTransform(CovariateTransform):
-    def __init__(self, df: pd.DataFrame,  sma: Optional[List] = None, ema: Optional[List] = None, rsi: Optional[List] = None, macd: bool = False,
-                 macd_signal: bool = False, volume_sma: Optional[List] = None, volume_std: Optional[List] = None, vroc: Optional[List] = None,
-                 macd_histogram: bool = False, obv: bool = False, roc: Optional[List] = None, volatility: Optional[List] = None,
-                 price_gap: Optional[List] = None, price_vs_sma: Optional[List] = None, turnover: Optional[List] = None, beta: Optional[List] = None):
+    def __init__(self, df: pd.DataFrame, sma: Optional[List[int]] = None, ema: Optional[List[int]] = None,
+                 rsi: Optional[List[int]] = None, macd: bool = False, macd_signal: bool = False,
+                 macd_histogram: bool = False, obv: bool = False, roc: Optional[List[int]] = None,
+                 volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
+                 volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
+                 price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
+                 turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
-        :param df: dataframe containing covariates
-        :param sma: simple moving average
-        :param ema: exponential moving average
-        :param rsi: relative strength index
-        :param macd: mean average convergence divergence
-        :param macd_signal: mean average convergence divergence signal
-        :param macd_histogram: mean average convergence divergence signal
-        :param obv: on balance volume
-        :param roc: price rate of change
-        :param volatility: std of price
-        :param volume: trading volume
-        :param price_gap: difference between current price and simple moving average
-        :param price_vs_sma: current price divided by simple moving average
-        :param turnover: turnover
-        :param beta: beta to market (JKSE)
+        :param df: DataFrame containing covariates
+        :param sma: List of window sizes for Simple Moving Average
+        :param ema: List of window sizes for Exponential Moving Average
+        :param rsi: List of window sizes for Relative Strength Index
+        :param macd: Calculate MACD (12-ema - 26-ema). Required for signal/histogram
+        :param macd_signal: Calculate MACD signal line (9-ema of MACD)
+        :param macd_histogram: Calculate MACD histogram (MACD - signal)
+        :param obv: Calculate On-Balance Volume. Requires 'VOLUME'
+        :param roc: List of periods for Price Rate of Change
+        :param volatility: List of window sizes for rolling standard deviation of daily returns
+        :param volume_sma: List of window sizes for Simple Moving Average of Volume. Requires 'VOLUME'
+        :param volume_std: List of window sizes for Rolling Standard Deviation of Volume. Requires 'VOLUME'
+        :param vroc: List of periods for Volume Rate of Change. Requires 'VOLUME'
+        :param price_gap: List of window sizes for Price - SMA(window)
+        :param price_vs_sma: List of window sizes for Price / SMA(window)
+        :param turnover: List of window sizes for Turnover calculation (Placeholder - Requires definition)
+        :param beta: List of window sizes for Beta calculation
         """
-        self.df = df
+        super().__init__(df)
+
         self.sma = sma
         self.ema = ema
         self.rsi = rsi
@@ -59,118 +59,192 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.volatility = volatility
         self.volume_sma = volume_sma
         self.volume_std = volume_std
+        self.vroc = vroc
         self.price_gap = price_gap
         self.price_vs_sma = price_vs_sma
         self.turnover = turnover
         self.beta = beta
-        self.vroc = vroc
 
 
-    def _add_sma(self):
+        required_base = ['PX_LAST']
+        if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
+            required_base.append('VOLUME')
+
+        missing_base = [col for col in required_base if col not in self.df.columns]
+        if missing_base:
+            raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
+
+
+    def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+        group = group.sort_index()
+        group = self._add_sma(group)
+        group = self._add_ema(group)
+        group = self._add_rsi(group)
+        group = self._add_macd(group)
+        group = self._add_obv(group)
+        group = self._add_roc(group)
+        group = self._add_volatility(group)
+        group = self._add_volume_sma(group)
+        group = self._add_volume_std(group)
+        group = self._add_vroc(group)
+        group = self._add_price_gap(group)
+        group = self._add_price_vs_sma(group)
+        group = self._add_turnover(group)
+        group = self._add_beta(group)
+
+        return group
+
+    def transform(self) -> pd.DataFrame:
+        transformed_df = self.df.groupby('ticker', group_keys=True).apply(self.group_transform)
+        transformed_df.reset_index(level='ticker')
+        return transformed_df.sort_index()
+
+
+    def _add_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.sma is not None:
             for window in self.sma:
-                self.df[f'sma_{window}'] = self.df['PX_LAST'].rolling(window=window).mean()
+                group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+        return group_df
 
-    def _add_ema(self):
+    def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.ema is not None:
-            for window in self.sma:
-                self.df[f'sma_{window}'] = self.df['PX_LAST'].ewm(span=window, adjust=False).mean()
+            for window in self.ema:
+                group_df[f'ema_{window}'] = group_df['PX_LAST'].ewm(span=window, adjust=False, min_periods=window).mean()
+        return group_df
 
-    def _add_rsi(self):
+    def _add_rsi(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.rsi is not None:
             for window in self.rsi:
-                delta = self.df['PX_LAST'].diff()
+                delta = group_df['PX_LAST'].diff()
                 gain = delta.clip(lower=0)
                 loss = -delta.clip(upper=0)
-                avg_gain = gain.rolling(window=window).mean()
-                avg_loss = loss.rolling(window=window).mean()
+                avg_gain = gain.ewm(com=window - 1, adjust=False, min_periods=window).mean()
+                avg_loss = loss.ewm(com=window - 1, adjust=False, min_periods=window).mean()
+
                 rs = avg_gain / avg_loss
-                self.df[f'rsi_{window}'] = 100 - (100 / (1 + rs))
+                rsi_val = 100.0 - (100.0 / (1.0 + rs))
+                rsi_val[avg_loss == 0] = 100.0
+                rsi_val[(avg_gain == 0) & (avg_loss == 0)] = np.nan
+                group_df[f'rsi_{window}'] = rsi_val
 
-    def _add_macd(self):
-        if self.macd_histogram or self.macd_signal and not self.macd_histogram:
-            raise ValueError('macd required for computation of macd_histogram and macd_signal')
+        return group_df
 
+    def _add_macd(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.macd:
-            ema12 = self.df['PX_LAST'].ewm(span=12, adjust=False).mean()
-            ema26 = self.df['PX_LAST'].ewm(span=26, adjust=False).mean()
-            self.df[f'macd'] = ema12 - ema26
+            ema12 = group_df['PX_LAST'].ewm(span=12, adjust=False, min_periods=12).mean()
+            ema26 = group_df['PX_LAST'].ewm(span=26, adjust=False, min_periods=26).mean()
+            group_df['macd'] = ema12 - ema26
 
             if self.macd_signal:
-                self.df[f'macd_signal'] = self.df['macd'].ewm(span=9, adjust=False).mean()
+                group_df['macd_signal'] = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
 
-            if self.macd_histogram:
-                self.df['macd_histogram'] = self.df['macd'] - self.df['macd_signal']
+                if self.macd_histogram:
+                    group_df['macd_histogram'] = group_df['macd'] - group_df['macd_signal']
+            elif self.macd_histogram:
+                signal = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
+                group_df['macd_histogram'] = group_df['macd'] - signal
 
-    def _add_obv(self):
+        return group_df
+
+    def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.obv:
-            self.df['obv'] = (np.sign(self.df['PX_LAST'].diff()) * self.df['VOLUME']).fillna(0).cumsum()
-            self.include_features('VOLUME')
+            if 'VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping OBV for group: 'VOLUME' column not found.", UserWarning)
+                return group_df
+            price_diff = group_df['PX_LAST'].diff()
+            volume = group_df['VOLUME']
+            signed_volume = (np.sign(price_diff) * volume).fillna(0)
+            group_df['obv'] = signed_volume.cumsum()
+        return group_df
 
-    def _add_price_gap(self):
+    def _add_price_gap(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.price_gap is not None:
             for window in self.price_gap:
-                self.df[f'price_gap_{window}'] = self.df['PX_LAST'] - self.df['PX_LAST'].rolling(window=window).mean()
+                sma = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+                group_df[f'price_gap_{window}'] = group_df['PX_LAST'] - sma
+        return group_df
 
-    def _add_price_vs_sma(self):
+    def _add_price_vs_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.price_vs_sma is not None:
             for window in self.price_vs_sma:
-                self.df[f'price_gap_{window}'] = self.df['PX_LAST'] / self.df['PX_LAST'].rolling(window=window).mean()
+                sma = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+                group_df[f'price_div_sma_{window}'] = (group_df['PX_LAST'] / sma).replace([np.inf, -np.inf], np.nan)
+        return group_df
 
-    def _add_roc(self):
+    def _add_roc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.roc is not None:
             for window in self.roc:
-                self.df[f'ROC_{window}'] = ((self.df['PX_LAST'] / self.df['PX_LAST'].shift(window)) - 1) * 100
+                shifted_price = group_df['PX_LAST'].shift(window)
+                group_df[f'roc_{window}'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
+        return group_df
 
-    def _add_volatility(self):
+    def _add_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volatility is not None:
-            self.df['daily_return'] = self.df['PX_LAST'].pct_change()
+            daily_return = group_df['PX_LAST'].pct_change()
             for window in self.volatility:
-                self.df[f'volatility_{window}'] = self.df['daily_return'].rolling(window=window).std()
+                group_df[f'volatility_{window}'] = daily_return.rolling(window=window, min_periods=window).std()
+        return group_df
 
-    def _add_volume_sma(self):
-        if self.volume_sma is not None:
+    def _add_volume_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.volume_sma:
+            if 'VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume SMA for group: 'VOLUME' column not found.", UserWarning)
+                return group_df
             for window in self.volume_sma:
-                self.df['volume_sma'] = self.df['VOLUME'].rolling(window=window).mean()
-            self.include_features('VOLUME')
+                group_df[f'volume_sma_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).mean()
+        return group_df
 
-    def _add_volume_std(self):
+    def _add_volume_std(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_std is not None:
+            if 'VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume StDev for group: 'VOLUME' column not found.", UserWarning)
+                return group_df
             for window in self.volume_std:
-                self.df['volume_std'] = self.df['VOLUME'].rolling(window=window).std()
-            self.include_features('VOLUME')
+                group_df[f'volume_std_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).std()
+        return group_df
 
-    def _add_vroc(self):
+    def _add_vroc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.vroc is not None:
+            if 'VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping VROC for group: 'VOLUME' column not found.", UserWarning)
+                return group_df
             for window in self.vroc:
-                self.df[f'vroc_{window}'] = ((self.df['VOLUME'] / self.df['VOLUME'].shift(window)) - 1) * 100
-            self.include_features('VOLUME')
+                shifted_volume = group_df['VOLUME'].shift(window)
+                group_df[f'vroc_{window}'] = ((group_df['VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
+        return group_df
 
-    # TODO: Figure an ez way to calculate this
-    def _add_beta(self):
-        if self.beta is not None:
+    def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.turnover is not None:
+            warnings.warn(f"Turnover calculation not implemented. Requires additional data (Shares Outstanding).", UserWarning)
             raise NotImplementedError
+        return group_df
+
+    def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.beta:
+            raise NotImplementedError
+        return group_df
 
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
-                 pe_band: Optional[Tuple[List, List]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
-                 adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False,):
+                 pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
+                 adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False):
         """
-        :param df: dataframe of covariates
-        :param pe_ratio: price earnings ratio
-        :param earnings_yield: earnings yield
-        :param debt_to_assets: debt to assets
-        :param pe_band (list of windows, list of quartiles): price earnings band
-        :param debt_to_capital:  debt to capital
-        :param equity_ratio: equity ratio
-        :param market_to_book: market to book ratio
-        :param adjusted_roic: adjusted roic
-        :param operating_efficiency: operating efficiency
-        :param levered_roa: levered roa
-        :param eps_growth: earnings per share growth
+        :param df: dataframe of covariates including fundamental data and price/market cap
+        :param pe_ratio: Calculate Price to Earnings ratio
+        :param earnings_yield: Calculate Earnings Yield (reciprocal of PE)
+        :param debt_to_assets: Calculate Debt to Assets ratio
+        :param pe_band: Tuple containing (list of window sizes, list of quantiles [0-100]) for PE Ratio rolling quantiles
+        :param debt_to_capital: Calculate Debt to Capital ratio
+        :param equity_ratio: Calculate Equity Ratio (inverse of Debt to Assets based on Liabilities)
+        :param market_to_book: Calculate Market to Book ratio
+        :param adjusted_roic: Calculate Adjusted ROIC (Operating ROIC - WACC)
+        :param operating_efficiency: Calculate Operating Efficiency (Operating Margin * Sales Growth)
+        :param levered_roa: Calculate Levered ROA (ROA * (1 + Debt/Equity))
+        :param eps_growth: Calculate Earnings Per Share growth (period over period)
         """
-        self.df = df
+        super().__init__(df)
+
         self.pe_ratio = pe_ratio
         self.earnings_yield = earnings_yield
         self.debt_to_assets = debt_to_assets
@@ -183,61 +257,152 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.levered_roa = levered_roa
         self.eps_growth = eps_growth
 
-    def _add_pe_ratio(self):
-        if self.pe_ratio:
-            self.df['pe_ratio'] = self.df['PX_LAST'] / self.df['IS_EPS']
-            self.include_features(['IS_EPS'])
-
-    def _add_pe_band(self):
-        if not self.pe_ratio:
-            raise ValueError('pe_ratio required for computation of pe_band; set pe_ratio=True')
-        if self.pe_band is not None:
-            for window in self.pe_band[0]:
-                for q in self.pe_band[1]:
-                    self.df[f'pe_band_{window}_{q}'] = self.df['pe_ratio'].rolling(window).quantile(q/100)
-
-    def earnings_yield(self):
-        if self.earnings_yield:
-            self.df['Earnings_Yield'] = self.df['IS_EPS'] / self.df['PX_LAST'].replace(0, np.nan)
-            self.include_features(['IS_EPS'])
-
-    def _add_debt_to_assets(self):
-        if self.debt_to_assets:
-            self.df['Debt_to_Assets'] = self.df['BS_TOTAL_LIABILITIES'] / self.df['BS_TOT_ASSET'].replace(0, np.nan)
-            self.include_features(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
-
-    def _add_debt_to_capital(self):
-        if self.debt_to_capital:
-            self.df['Debt_to_Capital'] = self.df['BS_TOTAL_LIABILITIES'] / (
-                    self.df['BS_TOTAL_LIABILITIES'] + (self.df['BS_TOT_ASSET'] - self.df['BS_TOTAL_LIABILITIES']))
-            self.include_features(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
-
-    def _add_equity_ratio(self):
-        if self.equity_ratio:
-            self.df['equity_ratio'] = (self.df['BS_TOT_ASSET'] - self.df['BS_TOTAL_LIABILITIES']) / self.df['BS_TOT_ASSET'].replace(0, np.nan)
-            self.include_features(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
-
-    def _market_to_book(self):
+        required_base = set()
+        if self.pe_ratio or self.earnings_yield or self.pe_band:
+            required_base.update(['PX_LAST', 'IS_EPS'])
+        if self.debt_to_assets or self.debt_to_capital or self.equity_ratio or self.market_to_book:
+            required_base.update(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
         if self.market_to_book:
-            self.df['Market_to_Book'] = self.df['CUR_MKT_CAP'] / ((self.df['BS_TOT_ASSET'] - self.df['BS_TOTAL_LIABILITIES']).replace(0, np.nan))
-            self.include_features(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES', 'CUR_MKT_CAP'])
-
-    def _add_adjusted_roic(self):
+            required_base.add('CUR_MKT_CAP')
         if self.adjusted_roic:
-            self.df['Adjusted_ROIC'] = self.df['OPERATING_ROIC'] - self.df['WACC']
-            self.include_features(['OPERATING_ROIC', 'WACC'])
-
-    def _add_operating_efficiency(self):
+            required_base.update(['OPERATING_ROIC', 'WACC'])
         if self.operating_efficiency:
-            self.df['Operating_Efficiency'] = self.df['OPER_MARGIN'] * self.df['SALES_GROWTH']
-            self.include_features(['OPER_MARGIN', 'SALES_GROWTH'])
-
-    def _add_levered_roa(self):
+            required_base.update(['OPER_MARGIN', 'SALES_GROWTH'])
         if self.levered_roa:
-            self.df['Levered_ROA'] = self.df['RETURN_ON_ASSET'] * (1 + self.df['TOT_DEBT_TO_TOT_EQY'])
-            self.include_features(['RETURN_ON_ASSET', 'TOT_DEBT_TO_TOT_EQY'])
-
-    # TODO: This is very dubious
-    def _add_eps_growth(self):
+            required_base.update(['RETURN_ON_ASSET', 'TOT_DEBT_TO_TOT_EQY'])
         if self.eps_growth:
-            self.df['EPS_Growth'] = (self.df['IS_EPS'] - self.df['IS_EPS'].shift(1)) / self.df['IS_EPS'].shift(1)
+            required_base.add('IS_EPS')
+
+        if self.pe_band is not None:
+            required_base.update(['PX_LAST', 'IS_EPS'])
+            if not self.pe_ratio:
+                warnings.warn("pe_band requested without pe_ratio=True. PE Ratio will be calculated but not added unless pe_ratio=True.", UserWarning)
+
+        missing_base = [col for col in required_base if col not in self.df.columns]
+        if missing_base:
+            raise ValueError(f"Missing required base columns in DataFrame for fundamental calculations: {missing_base}")
+
+    def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+        group = group.sort_index()
+
+        if self.pe_band is not None or self.pe_ratio:
+            group = self._add_pe_ratio(group, add_column=self.pe_ratio)
+
+        group = self._add_pe_band(group)
+        group = self._add_earnings_yield(group)
+        group = self._add_debt_to_assets(group)
+        group = self._add_debt_to_capital(group)
+        group = self._add_equity_ratio(group)
+        group = self._add_market_to_book(group)
+        group = self._add_adjusted_roic(group)
+        group = self._add_operating_efficiency(group)
+        group = self._add_levered_roa(group)
+        group = self._add_eps_growth(group)
+
+        return group
+
+    def transform(self) -> pd.DataFrame:
+        transformed_df = self.df.groupby('ticker', group_keys=False).apply(self.group_transform)
+        return transformed_df.sort_index()
+
+
+    def _add_pe_ratio(self, group_df: pd.DataFrame, add_column: bool = True) -> pd.DataFrame:
+        if self.pe_ratio or self.pe_band is not None:
+            safe_eps = group_df['IS_EPS'].replace(0, np.nan)
+            safe_eps[safe_eps < 0] = np.nan
+            pe_col = group_df['PX_LAST'] / safe_eps
+            pe_col = pe_col.replace([np.inf, -np.inf], np.nan)
+            if add_column:
+                group_df['pe_ratio'] = pe_col
+            else:
+                group_df['_temp_pe_ratio'] = pe_col
+        return group_df
+
+    def _add_pe_band(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.pe_band is not None:
+            pe_col_name = 'pe_ratio' if 'pe_ratio' in group_df.columns else '_temp_pe_ratio'
+            if pe_col_name not in group_df.columns:
+                warnings.warn(f"Skipping PE Band for group '{group_df['ticker'].iloc[0]}': Base PE Ratio not calculated.", UserWarning)
+                return group_df
+
+            if not (isinstance(self.pe_band, tuple) and len(self.pe_band) == 2 and
+                    isinstance(self.pe_band[0], list) and isinstance(self.pe_band[1], list)):
+                raise ValueError("pe_band parameter must be a tuple containing two lists: ([windows], [quantiles])")
+
+            windows, quantiles = self.pe_band
+            for window in windows:
+                for q_percent in quantiles:
+                    if not 0 <= q_percent <= 100:
+                        warnings.warn(f"Skipping PE Band quantile {q_percent}. Quantiles should be between 0 and 100.", UserWarning)
+                        continue
+                    q_decimal = q_percent / 100.0
+                    try:
+                        group_df[f'pe_band_{window}_{q_percent}'] = group_df[pe_col_name].rolling(window=window, min_periods=max(1, int(window*q_decimal))).quantile(q_decimal, interpolation='linear')
+                    except Exception as e:
+                        warnings.warn(f"Could not calculate pe_band_{window}_{q_percent} for group '{group_df['ticker'].iloc[0]}'. Error: {e}", UserWarning)
+
+            if '_temp_pe_ratio' in group_df.columns:
+                group_df = group_df.drop(columns=['_temp_pe_ratio'])
+
+        return group_df
+
+    def _add_earnings_yield(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.earnings_yield:
+            safe_price = group_df['PX_LAST'].replace(0, np.nan)
+            group_df['earnings_yield'] = (group_df['IS_EPS'] / safe_price).replace([np.inf, -np.inf], np.nan)
+        return group_df
+
+    def _add_debt_to_assets(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.debt_to_assets:
+            safe_assets = group_df['BS_TOT_ASSET'].replace(0, np.nan)
+            group_df['debt_to_assets'] = (group_df['BS_TOTAL_LIABILITIES'] / safe_assets).replace([np.inf, -np.inf], np.nan)
+        return group_df
+
+    def _add_debt_to_capital(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.debt_to_capital:
+            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
+            total_capital = group_df['BS_TOTAL_LIABILITIES'] + total_equity
+            safe_capital = total_capital.replace(0, np.nan)
+            group_df['debt_to_capital'] = (group_df['BS_TOTAL_LIABILITIES'] / safe_capital).replace([np.inf, -np.inf], np.nan)
+        return group_df
+
+    def _add_equity_ratio(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.equity_ratio:
+            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
+            safe_assets = group_df['BS_TOT_ASSET'].replace(0, np.nan)
+            group_df['equity_ratio'] = (total_equity / safe_assets).replace([np.inf, -np.inf], np.nan)
+        return group_df
+
+    def _add_market_to_book(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.market_to_book:
+            book_value = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
+            safe_book_value = book_value.replace(0, np.nan)
+            safe_book_value[safe_book_value < 0] = np.nan
+            group_df['market_to_book'] = (group_df['CUR_MKT_CAP'] / safe_book_value).replace([np.inf, -np.inf], np.nan)
+        return group_df
+
+    def _add_adjusted_roic(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.adjusted_roic:
+            group_df['adjusted_roic'] = group_df['OPERATING_ROIC'] - group_df['WACC']
+        return group_df
+
+    def _add_operating_efficiency(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.operating_efficiency:
+            group_df['operating_efficiency'] = group_df['OPER_MARGIN'] * group_df['SALES_GROWTH']
+        return group_df
+
+    def _add_levered_roa(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.levered_roa:
+            leverage_factor = (1 + group_df['TOT_DEBT_TO_TOT_EQY'].fillna(0))
+            group_df['levered_roa'] = group_df['RETURN_ON_ASSET'] * leverage_factor
+        return group_df
+
+    def _add_eps_growth(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.eps_growth:
+            eps_prior = group_df['IS_EPS'].shift(1)
+            safe_eps_prior = eps_prior.replace(0, np.nan)
+            safe_eps_prior[safe_eps_prior < 0] = np.nan
+
+            growth = (group_df['IS_EPS'] - safe_eps_prior) / safe_eps_prior
+            group_df['eps_growth'] = growth.replace([np.inf, -np.inf], np.nan)
+        return group_df

@@ -91,7 +91,7 @@ class DataLoader:
         self.tickernames = unique_tickernames
 
         for idx, cov in enumerate(self.covlist):
-            cov.loc[:, 'Ticker'] = tickernames[idx]
+            cov.loc[:, 'ticker'] = tickernames[idx]
 
 
     def _get_number(self, col_name):
