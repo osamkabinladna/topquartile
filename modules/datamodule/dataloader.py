@@ -8,11 +8,12 @@ from collections import defaultdict
 import yfinance as yf
 
 
-class BloombergDataloader:
+class DataLoader:
     """
     Loads Bloomberg-formatted data
     """
-    def __init__(self, covariates_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252, n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
+    def __init__(self, covariates_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
+                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
         self.covariates_id = covariates_id
         self.labels_id = labels_id
         self.label_duration = label_duration
@@ -28,6 +29,7 @@ class BloombergDataloader:
         self.covariates = None
         self.labels = None
         self.covlist = None
+        self.pred = None
 
         cwd = Path.cwd()
         self.covariates_path = cwd / 'data' / self.covariates_id
@@ -40,12 +42,13 @@ class BloombergDataloader:
         self._load_covariates()
         self._load_labels()
         self._impute_columns()
-        self.transforms = BloombergDataTransforms(self.covlist, self.labels, self.label_duration)
         self.transforms.transform()
 
 
     def _load_covariates(self):
-        # TODO: Minta sophie data yg bersih bener bener bersih dari awal.
+        """
+        Extracts covariates, and adds ticker name as one of the covariate
+        """
         ticker_df = pd.read_csv(self.covariates_path,
                                 skiprows=3)
 
@@ -107,6 +110,12 @@ class BloombergDataloader:
         self.labels['JKSE_Daily_Return'] = self.labels['JKSE_PRICE'].pct_change()
 
     def _impute_columns(self):
+        """
+        TODO: I dont like this, change to explicit call of features to use
+        maybe save columns required as datatransform class property
+        and then
+        """
+
         required_columns = [
             'PX_LAST', 'RETURN_COM_EQY',
             'CUR_MKT_CAP', 'PX_TO_BOOK_RATIO', 'PX_TO_SALES_RATIO',
