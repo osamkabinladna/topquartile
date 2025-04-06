@@ -2,10 +2,12 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Union
 import re
 from collections import defaultdict
 import yfinance as yf
+from topquartile.modules.datamodule.transforms import (
+    CovariateTransform, LabelTransform)
 
 
 class DataLoader:
@@ -13,8 +15,10 @@ class DataLoader:
     Loads Bloomberg-formatted data
     """
     def __init__(self, data_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
-                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
+                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = '',
+                 covariate_transform: Optional[List[CovariateTransform]] = None, label_transform: Optional[List[LabelTransform]] = None):
         self.data_id = data_id
+        self.covariate_transform = covariate_transform
         self.labels_id = labels_id
         self.label_duration = label_duration
         self.pred_length = pred_length
@@ -25,17 +29,35 @@ class DataLoader:
         self.save_directory = save_directory
         self.remove_last_n = self.label_duration
 
-        self.covariates = None
+        self.covariate_transform_config = covariate_transform if covariate_transform else []
+        self.label_transform_config = label_transform if label_transform else []
+
+        self.data = None
         self.labels = None
-        self.covlist = None
         self.pred = None
 
         root_path = Path(__file__).resolve().parent.parent.parent
         self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
         self.labels_path = root_path / 'data' / self.labels_id
 
-    def transform_data(self):
-        raise NotImplementedError
+    def _apply_transforms(self):
+        for TransformClass, params in self.covariate_transform_config:
+            if not issubclass(TransformClass, CovariateTransform):
+                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of CovariateTransform")
+            try:
+                transformer_instance = TransformClass(df=self.data, **params)
+                self.data = transformer_instance.transform()
+            except Exception as e:
+                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+
+        for TransformClass, params in self.label_transform_config:
+            if not issubclass(TransformClass, LabelTransform):
+                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of LabelTransform")
+            try:
+                transformer_instance = TransformClass(df=self.data, **params)
+                self.data = transformer_instance.transform()
+            except Exception as e:
+                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
 
     def process_data(self):
         pass

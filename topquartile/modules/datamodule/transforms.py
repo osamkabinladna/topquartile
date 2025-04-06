@@ -5,143 +5,29 @@ from abc import ABC, abstractmethod
 import warnings
 import yfinance as yf
 
-def get_date_range(df: pd.DataFrame) -> Tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
-    if isinstance(df.index, pd.DatetimeIndex):
-        return df.index.min(), df.index.max()
-    warnings.warn("DataFrame index is not a DatetimeIndex. Cannot determine date range.")
-    return None, None
-
-class BinaryLabelTransform:
-    def __init__(self, n_days: int, quartile: int, market_ticker: str = "^JKSE"):
-        """
-        Initializes the transformer.
-
-        :param n_days: The number of future days to calculate the return over (holding period).
-        :param quartile: The number of quantiles to divide the data into (e.g., 4 for quartiles).
-                         The top 1/quartile performers will be labeled 1.
-        :param market_ticker: The ticker symbol for the market index (default: "^JKSE").
-        """
-
-        self.n_days = n_days
-        self.quartile = quartile
-        if quartile == 1:
-            raise ValueError('QUARTILE==1??? NO')
-        else:
-            self.percentile_threshold = 1.0 - (1.0 / quartile)
-
-        self.market_ticker = market_ticker
-        self.market_data = None
-        self.market_returns_nd = None
-        self._last_df_start_date = None
-        self._last_df_end_date = None
-
-    def _fetch_market_data(self, start_date: pd.Timestamp, end_date: pd.Timestamp):
-        try:
-            market_data = yf.download(self.market_ticker, start=start_date, end=end_date, progress=False)
-            if market_data.empty: raise ValueError("No data returned.")
-
-            market_data.index = pd.to_datetime(market_data.index)
-            market_data = market_data[market_data.index >= start_date]
-            if 'Close' not in market_data.columns: raise ValueError("'Close' column missing.")
-
-            market_data = market_data[['Close']].rename(columns={'Close': 'MARKET_PX'})
-            market_data = market_data[~market_data.index.duplicated(keep='first')]
-            self.market_data = market_data.sort_index()
-            self._last_df_start_date = start_date
-            self._last_df_end_date = end_date
-        except Exception as e:
-            warnings.warn(f"Market data download failed for {self.market_ticker}: {e}")
-            self.market_data = None
-            self._last_df_start_date = None
-            self._last_df_end_date = None
-
-    def _calculate_market_returns(self):
-        if self.market_data is None:
-            self.market_returns_nd = None
-            return
-
-        future_px = self.market_data['MARKET_PX'].shift(-self.n_days)
-        current_px = self.market_data['MARKET_PX'].replace(0, np.nan)
-        returns = ((future_px / current_px) - 1).rename('market_return_nd')
-        self.market_returns_nd = returns.replace([np.inf, -np.inf], np.nan)
-
-    def _ensure_market_data(self, start_date: pd.Timestamp, end_date: pd.Timestamp):
-        needs_fetch = False
-        if self.market_data is None or self.market_returns_nd is None:
-            needs_fetch = True
-        elif start_date < self._last_df_start_date or end_date > self._last_df_end_date:
-            needs_fetch = True
-
-        if needs_fetch:
-            self._fetch_market_data(start_date, end_date)
-            self._calculate_market_returns()
-
-    def transform(self, df: pd.DataFrame, price_col: str = 'PX_LAST') -> pd.DataFrame:
-        """
-        :param df: DataFrame with stock data, **must have a DatetimeIndex**,
-                   a 'ticker' column, and the specified price column.
-        :param price_col: The name of the column containing the stock price (default: 'PX_LAST').
-        :return: DataFrame with an added 'label' column.
-        """
-        if not isinstance(df.index, pd.DatetimeIndex):
-            raise TypeError("Input DataFrame 'df' must have a DatetimeIndex.")
-        if 'ticker' not in df.columns:
-            raise ValueError("Input DataFrame must contain a 'ticker' column.")
-        if price_col not in df.columns:
-            raise ValueError(f"Input DataFrame must contain the price column: '{price_col}'")
-
-        df_out = df.copy()
-
-        start_date = df_out.index.min()
-        end_date = df_out.index.max()
-        if pd.isna(start_date) or pd.isna(end_date):
-            raise ValueError("Could not determine valid start/end date from index (NaT found).")
-
-        self._ensure_market_data(start_date, end_date)
-        if self.market_returns_nd is None:
-            warnings.warn("Market returns unavailable. Cannot generate labels.")
-            df_out['label'] = 0
-            return df_out
-
-        if not df_out.index.is_monotonic_increasing:
-            df_out = df_out.sort_index()
-
-        future_stock_px = df_out.groupby('ticker')[price_col].shift(-self.n_days)
-        current_stock_px = df_out[price_col].replace(0, np.nan)
-        stock_return_nd = ((future_stock_px / current_stock_px) - 1)
-        stock_return_nd = stock_return_nd.replace([np.inf, -np.inf], np.nan)
-
-        market_returns_aligned = self.market_returns_nd.copy()
-        market_returns_aligned.index.name = df_out.index.name # Match index name for clean join
-
-        excess_return = stock_return_nd - market_returns_aligned # Direct subtraction aligns by index
-
-        try:
-            daily_threshold = excess_return.groupby(level=df_out.index.name) \
-                .transform(lambda x: x.quantile(self.percentile_threshold))
-        except Exception as e:
-            warnings.warn(f"Could not calculate quantile thresholds for some dates. Error: {e}")
-            daily_threshold = pd.Series(np.nan, index=df_out.index) # Fill with NaN
-
-        label = (excess_return > daily_threshold)
-        df_out['label'] = label.astype(int) # Convert boolean (True/False) to int (1/0)
-
-        print(f"Labeling complete. Label added: 'label' (Top {1/self.quartile*100:.0f}%)")
-        return df_out
-
-
-class CovariateTransform(ABC):
+class LabelTransform(ABC):
     def __init__(self, df: pd.DataFrame):
         if not isinstance(df, pd.DataFrame):
-            raise TypeError("Input 'df' must be a pandas DataFrame.")
-        if 'ticker' not in df.columns:
-            raise ValueError("Input DataFrame must contain a 'ticker' column.")
-        self.df = df.sort_values(by=['ticker', df.index.name or 'index']).copy()
-        self.original_columns = list(df.columns)
+            raise ValueError("df must be a pandas DataFrame")
+        self.df = df
 
     @abstractmethod
     def transform(self) -> pd.DataFrame:
         pass
+
+class CovariateTransform(ABC):
+    def __init__(self, df: pd.DataFrame):
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("df must be a pandas DataFrame")
+        self.df = df
+
+    @abstractmethod
+    def transform(self) -> pd.DataFrame:
+        raise NotImplementedError
+
+    @abstractmethod
+    def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+        raise NotImplementedError
 
 
 class TechnicalCovariateTransform(CovariateTransform):
@@ -191,7 +77,6 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.beta = beta
         self.required_base = set()
 
-
         self.required_base.update(['PX_LAST'])
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
             self.required_base.update('VOLUME')
@@ -222,7 +107,6 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def transform(self) -> pd.DataFrame:
         transformed_df = self.df.groupby('ticker', group_keys=True).apply(self.group_transform)
-        transformed_df.reset_index(level='ticker')
         return transformed_df.sort_index()
 
 
