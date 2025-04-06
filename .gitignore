@@ -6,7 +6,8 @@ __pycache__/
 # Mac
 .idea/
 .DS_Store
-data/
+topquartile/data/
+topquartile/topquartile/data
 
 # C extensions
 *.so

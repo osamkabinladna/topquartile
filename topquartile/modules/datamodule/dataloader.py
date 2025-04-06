@@ -12,9 +12,9 @@ class DataLoader:
     """
     Loads Bloomberg-formatted data
     """
-    def __init__(self, covariates_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
+    def __init__(self, data_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
                  n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
-        self.covariates_id = covariates_id
+        self.data_id = data_id
         self.labels_id = labels_id
         self.label_duration = label_duration
         self.pred_length = pred_length
@@ -25,24 +25,22 @@ class DataLoader:
         self.save_directory = save_directory
         self.remove_last_n = self.label_duration
 
-
         self.covariates = None
         self.labels = None
         self.covlist = None
         self.pred = None
 
         cwd = Path.cwd()
-        self.covariates_path = cwd / 'data' / self.covariates_id
+        self.covariates_path = cwd / 'data' / f'{self.data_id}.csv'
         self.labels_path = cwd / 'data' / self.labels_id
 
     def transform_data(self):
         raise NotImplementedError
 
     def process_data(self):
-        self._load_covariates()
+        self._load_data()
         self._load_labels()
         self._impute_columns()
-
 
     def _load_data(self) -> pd.DataFrame:
         ticker_df = pd.read_csv(self.covariates_path,
