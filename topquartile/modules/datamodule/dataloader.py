@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Dict
 import re
 from collections import defaultdict
 import yfinance as yf
@@ -16,7 +16,7 @@ class DataLoader:
     """
     def __init__(self, data_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
                  n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = '',
-                 covariate_transform: Optional[List[CovariateTransform]] = None, label_transform: Optional[List[LabelTransform]] = None):
+                 covariate_transform: Optional[Tuple[CovariateTransform, Dict]] = None, label_transform: Optional[Tuple[LabelTransform, Dict]] = None):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
         self.labels_id = labels_id
