@@ -30,17 +30,15 @@ class DataLoader:
         self.covlist = None
         self.pred = None
 
-        cwd = Path.cwd()
-        self.covariates_path = cwd / 'data' / f'{self.data_id}.csv'
-        self.labels_path = cwd / 'data' / self.labels_id
+        root_path = Path(__file__).resolve().parent.parent.parent
+        self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
+        self.labels_path = root_path / 'data' / self.labels_id
 
     def transform_data(self):
         raise NotImplementedError
 
     def process_data(self):
-        self._load_data()
-        self._load_labels()
-        self._impute_columns()
+        pass
 
     def _load_data(self) -> pd.DataFrame:
         ticker_df = pd.read_csv(self.covariates_path,
@@ -88,7 +86,6 @@ class DataLoader:
                 unique_tickernames.append(ticker)
                 unique_covlist.append(covlist[index])
 
-        print(len(unique_tickernames), len(unique_covlist))
         covlist = unique_covlist
         self.tickernames = unique_tickernames
 
