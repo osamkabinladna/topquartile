@@ -42,15 +42,11 @@ class DataLoader:
         self._load_covariates()
         self._load_labels()
         self._impute_columns()
-        self.transforms.transform()
 
 
-    def _load_covariates(self):
-        """
-        Extracts covariates, and adds ticker name as one of the covariate
-        """
+    def _load_data(self) -> pd.DataFrame:
         ticker_df = pd.read_csv(self.covariates_path,
-                                skiprows=3)
+                                skiprows=3, low_memory=False)
 
         tickernames = ticker_df.columns.tolist()
         tickernames = [ticker for ticker in tickernames if not ticker.startswith('Unnamed')]
@@ -68,6 +64,13 @@ class DataLoader:
 
         max_number = max(col_dict.keys())
         self.covlist = [None] * (max_number + 1)
+
+        for number in range(max_number + 1):
+            cols = col_dict.get(number, [])
+            if cols:
+                self.covlist[number] = covariates[cols]
+            else:
+                self.covlist[number] = pd.DataFrame()
 
         tickernames = [ticker[:4] for ticker in tickernames] # Becos duplicates show as such "IMJS IJ EQUITY:1"
 
@@ -87,11 +90,16 @@ class DataLoader:
                 unique_tickernames.append(ticker)
                 unique_covlist.append(self.covlist[index])
 
+        print(len(unique_tickernames), len(unique_covlist))
         self.covlist = unique_covlist
         self.tickernames = unique_tickernames
 
         for idx, cov in enumerate(self.covlist):
-            cov.loc[:, 'ticker'] = tickernames[idx]
+            cov_copy = cov.copy()
+            cov_copy.loc[:, 'ticker'] = tickernames[idx]
+            self.covlist[idx] = cov_copy
+
+        return self.covlist
 
 
     def _get_number(self, col_name):
