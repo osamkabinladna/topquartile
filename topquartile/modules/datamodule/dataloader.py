@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
 import yfinance as yf
@@ -11,15 +11,13 @@ from topquartile.modules.datamodule.transforms import (
 
 
 class DataLoader:
-    """
-    Loads Bloomberg-formatted data
-    """
-    def __init__(self, data_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252,
-                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = '',
-                 covariate_transform: Optional[Tuple[CovariateTransform, Dict]] = None, label_transform: Optional[Tuple[LabelTransform, Dict]] = None):
+    def __init__(self, data_id: str, label_duration: int,
+                 covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
+                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
+                 pred_length: int = 20, n_train: int = 252,
+                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
-        self.labels_id = labels_id
         self.label_duration = label_duration
         self.pred_length = pred_length
         self.n_train = n_train
@@ -38,9 +36,11 @@ class DataLoader:
 
         root_path = Path(__file__).resolve().parent.parent.parent
         self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
-        self.labels_path = root_path / 'data' / self.labels_id
 
     def _apply_transforms(self):
+        if self.data is None:
+            self._load_data()
+
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
                 raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of CovariateTransform")
@@ -58,6 +58,8 @@ class DataLoader:
                 self.data = transformer_instance.transform()
             except Exception as e:
                 raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+
+        return self.data
 
     def process_data(self):
         pass
