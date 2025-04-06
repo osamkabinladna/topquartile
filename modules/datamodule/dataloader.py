@@ -51,7 +51,7 @@ class DataLoader:
         tickernames = ticker_df.columns.tolist()
         tickernames = [ticker for ticker in tickernames if not ticker.startswith('Unnamed')]
 
-        covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0)
+        covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0, low_memory=False)
         covariates.dropna(inplace=True, axis=0, how='all')
         covariates.dropna(inplace=True, axis=1, how='all')
 
@@ -63,14 +63,14 @@ class DataLoader:
             col_dict[number].append(col)
 
         max_number = max(col_dict.keys())
-        self.covlist = [None] * (max_number + 1)
+        covlist = [None] * (max_number + 1)
 
         for number in range(max_number + 1):
             cols = col_dict.get(number, [])
             if cols:
-                self.covlist[number] = covariates[cols]
+                covlist[number] = covariates[cols]
             else:
-                self.covlist[number] = pd.DataFrame()
+                covlist[number] = pd.DataFrame()
 
         tickernames = [ticker[:4] for ticker in tickernames] # Becos duplicates show as such "IMJS IJ EQUITY:1"
 
@@ -88,18 +88,22 @@ class DataLoader:
         for index, ticker in enumerate(tickernames):
             if index not in duplicate_indices:
                 unique_tickernames.append(ticker)
-                unique_covlist.append(self.covlist[index])
+                unique_covlist.append(covlist[index])
 
         print(len(unique_tickernames), len(unique_covlist))
-        self.covlist = unique_covlist
+        covlist = unique_covlist
         self.tickernames = unique_tickernames
 
-        for idx, cov in enumerate(self.covlist):
+        for idx, cov in enumerate(covlist):
             cov_copy = cov.copy()
             cov_copy.loc[:, 'ticker'] = tickernames[idx]
-            self.covlist[idx] = cov_copy
 
-        return self.covlist
+            if idx != 0:
+                cov_copy.columns = [col.split('.')[0] for col in cov_copy.columns]
+            covlist[idx] = cov_copy
+        self.data = pd.concat(covlist)
+
+        return self.data
 
 
     def _get_number(self, col_name):
