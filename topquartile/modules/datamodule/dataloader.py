@@ -2,19 +2,22 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
 import yfinance as yf
+from topquartile.modules.datamodule.transforms import (
+    CovariateTransform, LabelTransform)
 
 
-class BloombergDataloader:
-    """
-    Loads Bloomberg-formatted data
-    """
-    def __init__(self, covariates_id: str, labels_id: str, label_duration: int,  pred_length: int = 20, n_train: int = 252, n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
-        self.covariates_id = covariates_id
-        self.labels_id = labels_id
+class DataLoader:
+    def __init__(self, data_id: str, label_duration: int,
+                 covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
+                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
+                 pred_length: int = 20, n_train: int = 252,
+                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
+        self.data_id = data_id
+        self.covariate_transform = covariate_transform
         self.label_duration = label_duration
         self.pred_length = pred_length
         self.n_train = n_train
@@ -24,59 +27,102 @@ class BloombergDataloader:
         self.save_directory = save_directory
         self.remove_last_n = self.label_duration
 
+        self.covariate_transform_config = covariate_transform if covariate_transform else []
+        self.label_transform_config = label_transform if label_transform else []
 
-        self.covariates = None
+        self.data = None
         self.labels = None
-        self.covlist = None
+        self.pred = None
 
-        cwd = Path.cwd()
-        self.covariates_path = cwd / 'data' / self.covariates_id
-        self.labels_path = cwd / 'data' / self.labels_id
+        root_path = Path(__file__).resolve().parent.parent.parent
+        self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
 
-    def transform_data(self):
-        raise NotImplementedError
+    def _apply_transforms(self):
+        if self.data is None:
+            self._load_data()
+
+        for TransformClass, params in self.covariate_transform_config:
+            if not issubclass(TransformClass, CovariateTransform):
+                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of CovariateTransform")
+            try:
+                transformer_instance = TransformClass(df=self.data, **params)
+                self.data = transformer_instance.transform()
+            except Exception as e:
+                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+
+        for TransformClass, params in self.label_transform_config:
+            if not issubclass(TransformClass, LabelTransform):
+                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of LabelTransform")
+            try:
+                transformer_instance = TransformClass(df=self.data, **params)
+                self.data = transformer_instance.transform()
+            except Exception as e:
+                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+
+        return self.data
 
     def process_data(self):
-        self._load_covariates()
-        self._load_labels()
-        self._impute_columns()
-        self.transforms = BloombergDataTransforms(self.covlist, self.labels, self.label_duration)
-        self.transforms.transform()
+        pass
 
-
-    def _load_covariates(self):
-        # TODO: Minta sophie data yg bersih bener bener bersih dari awal.
+    def _load_data(self) -> pd.DataFrame:
         ticker_df = pd.read_csv(self.covariates_path,
-                                skiprows=3,
-                                usecols= lambda x: not x.startswith('Unnamed') and len(x.split('.')) < 2)
+                                skiprows=3, low_memory=False)
+
         tickernames = ticker_df.columns.tolist()
+        tickernames = [ticker for ticker in tickernames if not ticker.startswith('Unnamed')]
 
-        covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0)
+        covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0, low_memory=False)
+        covariates.dropna(inplace=True, axis=0, how='all')
+        covariates.dropna(inplace=True, axis=1, how='all')
 
-
-        # Lots of NaN columns and NaN rows
-        covariates.dropna(how='all', inplace=True, axis=1)
-        covariates.dropna(how='all', inplace=True, axis=0)
         covariates.index = pd.to_datetime(covariates.index, format='mixed')
 
         col_dict = defaultdict(list)
-
         for col in covariates.columns:
             number = self._get_number(col)
             col_dict[number].append(col)
 
         max_number = max(col_dict.keys())
-        self.covlist = [None] * (max_number + 1)
+        covlist = [None] * (max_number + 1)
 
         for number in range(max_number + 1):
             cols = col_dict.get(number, [])
             if cols:
-                self.covlist[number] = self.covariates[cols]
+                covlist[number] = covariates[cols]
             else:
-                self.covlist[number] = pd.DataFrame()
+                covlist[number] = pd.DataFrame()
 
-        for idx, cov in enumerate(self.covlist):
-            cov.loc[:, 'Ticker'] = tickernames[idx]
+        tickernames = [ticker[:4] for ticker in tickernames] # Becos duplicates show as such "IMJS IJ EQUITY:1"
+
+        first_occurrence_index = {}
+        duplicate_indices = []
+
+        for index, ticker in enumerate(tickernames):
+            if ticker in first_occurrence_index:
+                duplicate_indices.append(index)
+            else:
+                first_occurrence_index[ticker] = index
+
+        unique_tickernames = []
+        unique_covlist = []
+        for index, ticker in enumerate(tickernames):
+            if index not in duplicate_indices:
+                unique_tickernames.append(ticker)
+                unique_covlist.append(covlist[index])
+
+        covlist = unique_covlist
+        self.tickernames = unique_tickernames
+
+        for idx, cov in enumerate(covlist):
+            cov_copy = cov.copy()
+            cov_copy.loc[:, 'ticker'] = tickernames[idx]
+
+            if idx != 0:
+                cov_copy.columns = [col.split('.')[0] for col in cov_copy.columns]
+            covlist[idx] = cov_copy
+        self.data = pd.concat(covlist)
+
+        return self.data
 
 
     def _get_number(self, col_name):
@@ -95,6 +141,12 @@ class BloombergDataloader:
         self.labels['JKSE_Daily_Return'] = self.labels['JKSE_PRICE'].pct_change()
 
     def _impute_columns(self):
+        """
+        TODO: I dont like this, change to explicit call of features to use
+        maybe save columns required as datatransform class property
+        and then
+        """
+
         required_columns = [
             'PX_LAST', 'RETURN_COM_EQY',
             'CUR_MKT_CAP', 'PX_TO_BOOK_RATIO', 'PX_TO_SALES_RATIO',
