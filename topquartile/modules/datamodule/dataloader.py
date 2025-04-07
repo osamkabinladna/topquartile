@@ -11,20 +11,11 @@ from topquartile.modules.datamodule.transforms import (
 
 
 class DataLoader:
-    def __init__(self, data_id: str, label_duration: int,
+    def __init__(self, data_id: str,
                  covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
-                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
-                 pred_length: int = 20, n_train: int = 252,
-                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
+                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
-        self.label_duration = label_duration
-        self.pred_length = pred_length
-        self.n_train = n_train
-        self.n_test = n_test
-        self.n_embargo = n_embargo
-        self.save = save
-        self.save_directory = save_directory
         self.remove_last_n = self.label_duration
 
         self.covariate_transform_config = covariate_transform if covariate_transform else []
