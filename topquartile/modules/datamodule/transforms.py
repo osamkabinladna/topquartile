@@ -540,3 +540,19 @@ class BinaryLabelTransform(LabelTransform):
         df_copy[self.label_col_name] = df_copy.groupby(level=self.date_level_name, group_keys=False).apply(self._assign_label)
 
         return df_copy
+
+from topquartile.modules.datamodule.dataloader import DataLoader
+from topquartile.modules.datamodule.transforms import (TechnicalCovariateTransform,
+                                                       FundamentalCovariateTransform,
+                                                       BinaryLabelTransform)
+
+covtrans_config = [((TechnicalCovariateTransform, dict(sma = [20, 30],
+                                                     ema = [20, 30],
+                                                     volatility = [20, 30]))),
+                   ((FundamentalCovariateTransform, dict(adjusted_roic=True)))]
+
+labeltrans_config = [(BinaryLabelTransform, dict(label_duration=20,
+                                                quantile=0.9))]
+
+data = DataLoader(data_id='dec2024', label_duration=10, covariate_transform=covtrans_config,
+                  label_transform=labeltrans_config)._transform_data()
