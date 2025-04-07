@@ -303,7 +303,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         return group
 
     def transform(self) -> pd.DataFrame:
-        transformed_df = self.df.groupby('ticker', group_keys=False).apply(self.group_transform)
+        transformed_df = self.df.groupby(level='ticker', group_keys=False).apply(self.group_transform)
         return transformed_df.sort_index()
 
 
@@ -465,10 +465,8 @@ class BinaryLabelTransform(LabelTransform):
         required_end_date = unique_dates.max()
 
         try:
-            index_data = yf.download(
-                self.index_ticker, start=start_date, end=required_end_date,
-                progress=False, auto_adjust=False
-            )
+            index_data = yf.download(self.index_ticker, start=start_date, end=required_end_date,
+                progress=False, auto_adjust=False)
         except Exception as e:
             raise ConnectionError(f"Failed to download index data for {self.index_ticker}: {e}")
 
@@ -492,12 +490,12 @@ class BinaryLabelTransform(LabelTransform):
             raise TypeError(f"_calculate_returns function unexpectedly returned a {type(index_returns)}, expected Series.")
 
         index_returns.name = 'INDEX_RETURN'
-        aligned_index_returns = index_returns.reindex(unique_dates).ffill()
+        aligned_index_returns = index_returns.reindex(unique_dates)
 
         nan_count = aligned_index_returns.isnull().sum()
         if pd.api.types.is_scalar(nan_count):
             if nan_count > 0:
-                print(f"Warning: {nan_count} NaN values found in index returns after aligning and ffill.")
+                print(f"Warning: {nan_count} NaN values found in index returns after aligning.")
         else:
             raise TypeError(f"Calculation of NaN count failed. Expected scalar, got {type(nan_count)}. This might indicate aligned_index_returns is not a Series.")
 
