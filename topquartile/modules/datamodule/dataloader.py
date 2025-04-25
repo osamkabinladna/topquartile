@@ -14,7 +14,8 @@ from topquartile.modules.datamodule.transforms import (
 class DataLoader:
     def __init__(self, data_id: str,
                  covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
-                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None):
+                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
+                 cols2drop: Optional[List[str]] = 'NEWS_SENTIMENT_DAILY_AVG'):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
 
@@ -25,6 +26,7 @@ class DataLoader:
         self.labels = None
         self.pred = None
         self.required_covariates = set()
+        self.cols2drop = cols2drop
 
         root_path = Path(__file__).resolve().parent.parent.parent
         self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
@@ -130,7 +132,7 @@ class DataLoader:
 
     def _impute_columns(self):
         """
-        Imputes columns inplace
+        Imputes columns inplace, credit to osamkabinladna
         """
         missing_value_threshold = self.data[self.required_covariates].isna().sum()
         missing_value_all = self.data.isna().sum()
@@ -145,9 +147,9 @@ class DataLoader:
                 warnings.warn(f'{columns_to_drop} was not found in the data even though they are suposed to be dropped')
                 continue
             try:
-                self.data[idx] = self.data[idx].drop(axis=1, columns='NEWS_SENTIMENT_DAILY_AVG')
+                self.data[idx] = self.data[idx].drop(axis=1, columns=self.cols2drop)
             except KeyError:
-                print(idx)
+                warnings.warn(f'The specified cols2drop cannot be found on the dataframe {self.cols2drop}')
                 continue
 
 
