@@ -15,7 +15,8 @@ class DataLoader:
     def __init__(self, data_id: str,
                  covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
                  label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
-                 cols2drop: Optional[List[str]] = 'NEWS_SENTIMENT_DAILY_AVG'):
+                 cols2drop: Optional[List[str]] = 'NEWS_SENTIMENT_DAILY_AVG',
+                 prediction_length: int = 20):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
 
@@ -24,9 +25,11 @@ class DataLoader:
 
         self.data = None
         self.labels = None
-        self.pred = None
+        self.preds = None
         self.required_covariates = set()
+
         self.cols2drop = cols2drop
+        self.prediction_length = prediction_length
 
         root_path = Path(__file__).resolve().parent.parent.parent
         self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
@@ -57,7 +60,7 @@ class DataLoader:
 
         return self.data
 
-    def process_data(self):
+    def _process_data(self):
         raise NotImplementedError
 
     def _load_data(self) -> pd.DataFrame:
@@ -152,9 +155,15 @@ class DataLoader:
                 warnings.warn(f'The specified cols2drop cannot be found on the dataframe {self.cols2drop}')
                 continue
 
-
     def load_preds(self):
-        raise NotImplementedError
+        if self.data is None:
+            self._process_data()
+
+        self.preds = self.data.groupby('ticker', group_keys=False).tail(self.prediction_length)
+        remaining_index = self.data.index.difference(self.preds.index)
+        self.data = self.data.loc[remaining_index]
+
+        return self.preds
 
     def _partition_data(self):
         raise NotImplementedError
