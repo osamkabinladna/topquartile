@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
+import warnings
 import yfinance as yf
 from topquartile.modules.datamodule.transforms import (
     CovariateTransform, LabelTransform)
@@ -16,14 +17,14 @@ class DataLoader:
                  label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None):
         self.data_id = data_id
         self.covariate_transform = covariate_transform
-        self.remove_last_n = self.label_duration
 
-        self.covariate_transform_config = covariate_transform if covariate_transform else []
-        self.label_transform_config = label_transform if label_transform else []
+        self.covariate_transform_config = covariate_transform
+        self.label_transform_config = label_transform
 
         self.data = None
         self.labels = None
         self.pred = None
+        self.required_covariates = set()
 
         root_path = Path(__file__).resolve().parent.parent.parent
         self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
@@ -38,6 +39,8 @@ class DataLoader:
             try:
                 transformer_instance = TransformClass(df=self.data, **params)
                 self.data = transformer_instance.transform()
+                self.required_covariates.update(transformer_instance.required_base)
+
             except Exception as e:
                 raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
 
@@ -116,6 +119,9 @@ class DataLoader:
         return self.data
 
     def _get_number(self, col_name):
+        """
+        credit to chatgpt
+        """
         match = re.match(r'^(.*?)(?:\.(\d+))?$', col_name)
         if match.group(2):
             return int(match.group(2))
@@ -123,7 +129,27 @@ class DataLoader:
             return 0
 
     def _impute_columns(self):
-        raise NotImplementedError
+        """
+        Imputes columns inplace
+        """
+        missing_value_threshold = self.data[self.required_covariates].isna().sum()
+        missing_value_all = self.data.isna().sum()
+        columns_to_drop = missing_value_all[missing_value_all > missing_value_threshold]
+        if columns_to_drop is not None:
+            warnings.warn(f'too much missing value in the following column. {columns_to_drop} will be dropped')
+
+        for idx, cov in enumerate(self.data):
+            try:
+                self.data[idx] = self.data[idx].drop(axis=1, columns=columns_to_drop)
+            except KeyError:
+                warnings.warn(f'{columns_to_drop} was not found in the data even though they are suposed to be dropped')
+                continue
+            try:
+                self.data[idx] = self.data[idx].drop(axis=1, columns='NEWS_SENTIMENT_DAILY_AVG')
+            except KeyError:
+                print(idx)
+                continue
+
 
     def load_preds(self):
         raise NotImplementedError

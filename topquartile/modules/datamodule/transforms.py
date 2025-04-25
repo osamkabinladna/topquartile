@@ -423,8 +423,7 @@ class BinaryLabelTransform(LabelTransform):
     def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
                  index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
                  ticker_level_name: str = 'ticker',
-                 date_level_name: str = 'Dates'
-                 ):
+                 date_level_name: str = 'Dates'):
         """
         :param df: dataframe to be transformed
         :param label_duration: asset holding period
