@@ -1,178 +1,194 @@
-import warnings
-from abc import ABC, abstractmethod
-from typing import Iterator, Tuple, Optional, Any, Iterable, List
 import pandas as pd
-from sklearn.utils import indexable
-from sklearn.utils.validation import _num_samples
 import numpy as np
-from sklearn.model_selection._split import _BaseKFold, indexable, _num_samples
-from sklearn.utils.validation import _deprecate_positional_args
-from typing import Optional, Iterable, Iterator, Tuple, Dict, List, Any
-import itertools # For chain.from_iterable
+import os
+from pathlib import Path
+from typing import List, Tuple, Optional, Dict, Type
+import re
+from collections import defaultdict
+import warnings
 
-class BasePartitioner(ABC):
-    @abstractmethod
-    def split(self,
-              X: Any,
-              y: Optional[Any] = None,
-              groups: Optional[Iterable[Any]] = None
-              ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        pass
-
-    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
-        if hasattr(self, 'n_splits'):
-            return self.n_splits
-        else:
-            raise NotImplementedError
+from topquartile.modules.datamodule.transforms import (
+    CovariateTransform,
+    LabelTransform,
+)
+from topquartile.modules.datamodule.partitions import (
+    BasePurgedTimeSeriesPartition,
+    PurgedTimeSeriesPartition,
+    PurgedGroupTimeSeriesPartition,
+)
 
 
+class DataLoader:
+    def _init_(
+        self,
+        data_id: str,
+        *,
+        covariate_transform: Optional[
+            List[Tuple[Type[CovariateTransform], Dict]]
+        ] = None,
+        label_transform: Optional[
+            List[Tuple[Type[LabelTransform], Dict]]
+        ] = None,
+        cols2drop: Optional[List[str]] = None,
+        prediction_length: int = 20,
+        partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
+        partition_params: Optional[Dict] = None,
+    ):
+        self.data_id = data_id
+        self.covariate_transform_config = covariate_transform or []
+        self.label_transform_config = label_transform or []
+        self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
+        self.prediction_length = prediction_length
 
-class PurgedGroupTimeSeriesSplit(BasePartitioner):
-    """
-    Stolen from Kaggle - https://www.kaggle.com/code/marketneutral/purged-time-series-cv-xgboost-optuna
-
-    Time Series cross-validator with non-overlapping groups and purging.
-
-    This splitter provides train/test indices to split time series data based
-    on groups provided by a third party. It ensures that the same group does
-    not appear in both training and testing sets within a single fold.
-
-    Crucially, it allows for a gap (`group_gap`) of groups between the end of
-    the training set and the start of the test set. This purging helps prevent
-    information leakage from the test set into the training set, which is
-    particularly important when using models with windowed or lagged features.
-
-    In each split `k`, the test set consists of groups from the `(k+1)`-th
-    block of groups, and the training set consists of groups from earlier blocks,
-    respecting the `group_gap` and `max_train_group_size`. Test indices within
-    a split are always chronologically later than training indices.
-
-    Parameters
-    ----------
-    n_splits : int, default=5
-        Number of splits. Must be at least 2. The number of folds will be
-        n_splits + 1.
-    max_train_group_size : int, default=np.inf
-        Maximum number of groups to include in the training set for each split.
-        Limits the lookback period.
-    max_test_group_size : int, default=np.inf
-        Maximum number of groups to include in the test set for each split.
-    group_gap : int, default=0
-        Number of groups to exclude between the end of the training set and
-        the beginning of the test set. This gap helps prevent leakage.
-
-    Raises
-    ------
-    ValueError
-        If `groups` is not provided in the `split` method.
-        If `n_splits + 1` is greater than the number of unique groups.
-    """
-
-    def __init__(self,
-                 n_splits: int = 5,
-                 max_train_group_size: int = np.inf,
-                 max_test_group_size: int = np.inf,
-                 group_gap: int = 0): # gap zero means no purge
-
-        if not isinstance(n_splits, int) or n_splits < 2:
-            raise ValueError("n_splits must be an integer >= 2.")
-        if not isinstance(max_train_group_size, (int, float)) or max_train_group_size <= 0:
-             raise ValueError("max_train_group_size must be a positive number.")
-        if not isinstance(max_test_group_size, (int, float)) or max_test_group_size <= 0:
-             raise ValueError("max_test_group_size must be a positive number.")
-        if not isinstance(group_gap, int) or group_gap < 0:
-            raise ValueError("group_gap must be a non-negative integer.")
-
-        self.n_splits = n_splits
-        self.max_train_group_size = int(max_train_group_size)
-        self.max_test_group_size = int(max_test_group_size)
-        self.group_gap = group_gap
-
-    def split(self,
-              X: Any,
-              y: Optional[Any] = None,
-              groups: Optional[Iterable[Any]] = None
-              ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """
-        Generate indices to split data into training and test set.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features) or similar indexable
-            Training data, where n_samples is the number of samples.
-        y : array-like of shape (n_samples,), optional
-            Always ignored, exists for compatibility.
-        groups : array-like of shape (n_samples,)
-            Group labels for the samples used while splitting the dataset into
-            train/test set. Must be provided. The groups are assumed to be
-            sortable and define a temporal order.
-
-        Yields
-        ------
-        train_indices : ndarray
-            The training set indices for that split.
-        test_indices : ndarray
-            The testing set indices for that split.
-
-        Raises
-        ------
-        ValueError
-            If `groups` is None or if folds cannot be formed.
-        """
-        if groups is None:
-            raise ValueError("The 'groups' parameter cannot be None.")
-
-        X, y, groups_arr = indexable(X, y, groups)
-        n_samples = _num_samples(X)
-        unique_groups, first_indices = np.unique(groups_arr, return_index=True)
-        ordered_unique_groups = unique_groups[np.argsort(first_indices)]
-        n_groups = len(ordered_unique_groups)
-
-        group_to_indices: Dict[Any, List[int]] = {}
-        for idx, group in enumerate(groups_arr):
-            if group not in group_to_indices:
-                group_to_indices[group] = []
-            group_to_indices[group].append(idx)
-
-        n_folds = self.n_splits + 1
-        if n_folds > n_groups:
+        if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
             raise ValueError(
-                f"Cannot have number of folds={n_folds} greater than "
-                f"the number of unique groups={n_groups}.")
+                "partition_class must inherit from BasePurgedTimeSeriesPartition"
+            )
+        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(
+            **(partition_params or {})
+        )
 
-        test_group_size = min(n_groups // n_folds, self.max_test_group_size)
-        if test_group_size == 0:
-             raise ValueError(f"max_test_group_size={self.max_test_group_size} is too small "
-                              f"for the number of groups={n_groups} and n_splits={self.n_splits}. "
-                              f"Results in zero groups per test split.")
+        self.data: Optional[pd.DataFrame] = None
+        self.tickernames: List[str] = []
+        self.required_covariates: set[str] = set()
+        self.preds: Optional[pd.DataFrame] = None
 
+        root_path = Path(_file_).resolve().parent.parent.parent
+        self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
 
-        test_group_starts = range(n_groups - self.n_splits * test_group_size,
-                                  n_groups, test_group_size)
+    def load_preds(self) -> pd.DataFrame:
+        if self.data is None:
+            self._process_data()
 
-        for test_group_start_idx in test_group_starts:
-            train_groups_end_idx = test_group_start_idx - self.group_gap
+        self.preds = (
+            self.data.groupby("ticker", group_keys=False).tail(self.prediction_length)
+        )
+        remaining_index = self.data.index.difference(self.preds.index)
+        self.data = self.data.loc[remaining_index]
+        return self.preds
 
-            train_groups_start_idx = max(0, train_groups_end_idx - self.max_train_group_size)
+    def _process_data(self):
+        self._transform_data()
+        self._impute_columns()
 
-            train_groups_start_idx = max(0, train_groups_start_idx)
-            train_groups_end_idx = max(train_groups_start_idx, train_groups_end_idx) # ensure end >= start
+    def _transform_data(self):
+        if self.data is None:
+            self._load_data()
 
+        for TransformClass, params in self.covariate_transform_config:
+            if not issubclass(TransformClass, CovariateTransform):
+                raise ValueError(
+                    "Invalid transform in covariate_transform_config: must subclass CovariateTransform"
+                )
+            transformer = TransformClass(df=self.data, **params)
+            self.data = transformer.transform()
+            self.required_covariates.update(transformer.required_base)
 
-            test_groups_end_idx = min(n_groups, test_group_start_idx + test_group_size)
+        for TransformClass, params in self.label_transform_config:
+            if not issubclass(TransformClass, LabelTransform):
+                raise ValueError(
+                    "Invalid transform in label_transform_config: must subclass LabelTransform"
+                )
+            transformer = TransformClass(df=self.data, **params)
+            self.data = transformer.transform()
 
-            train_groups = ordered_unique_groups[train_groups_start_idx:train_groups_end_idx]
-            test_groups = ordered_unique_groups[test_group_start_idx:test_groups_end_idx]
+        return self.data
 
-            train_indices = list(itertools.chain.from_iterable(
-                group_to_indices[group] for group in train_groups
-            ))
-            test_indices = list(itertools.chain.from_iterable(
-                group_to_indices[group] for group in test_groups
-            ))
+    def _load_data(self) -> pd.DataFrame:
+        ticker_df = pd.read_csv(self.covariates_path, skiprows=3, low_memory=False)
 
-            yield np.array(sorted(train_indices), dtype=int), \
-                  np.array(sorted(test_indices), dtype=int)
+        tickernames = [col for col in ticker_df.columns if not col.startswith("Unnamed")]
+        covariates = pd.read_csv(
+            self.covariates_path, skiprows=5, index_col=0, low_memory=False
+        )
+        covariates.dropna(inplace=True, axis=0, how="all")
+        covariates.dropna(inplace=True, axis=1, how="all")
+        covariates.index = pd.to_datetime(covariates.index, format="mixed")
 
-    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
-        return self.n_splits
+        col_dict: dict[int, list[str]] = defaultdict(list)
+        for col in covariates.columns:
+            number = self._get_number(col)
+            col_dict[number].append(col)
+        max_number = max(col_dict.keys())
+        covlist: list[pd.DataFrame] = [pd.DataFrame()] * (max_number + 1)
+        for number in range(max_number + 1):
+            cols = col_dict.get(number, [])
+            covlist[number] = covariates[cols] if cols else pd.DataFrame()
+
+        tickernames = [ticker[:4] for ticker in tickernames]  # "IMJS IJ EQUITY:1" → "IMJS"
+        first_occurrence: dict[str, int] = {}
+        duplicate_indices: list[int] = []
+        for idx, ticker in enumerate(tickernames):
+            if ticker in first_occurrence:
+                duplicate_indices.append(idx)
+            else:
+                first_occurrence[ticker] = idx
+        unique_covlist: list[pd.DataFrame] = []
+        unique_tickernames: list[str] = []
+        for idx, ticker in enumerate(tickernames):
+            if idx not in duplicate_indices:
+                unique_covlist.append(covlist[idx])
+                unique_tickernames.append(ticker)
+        covlist = unique_covlist
+        self.tickernames = unique_tickernames
+
+        for idx, cov in enumerate(covlist):
+            cov_copy = cov.copy()
+            cov_copy["ticker"] = tickernames[idx]
+            if idx != 0:
+                cov_copy.columns = [col.split(".")[0] for col in cov_copy.columns]
+            covlist[idx] = cov_copy
+        self.data = pd.concat(covlist)
+        return self.data
+
+    def _get_number(self, col_name: str) -> int:
+        match = re.match(r"^(.*?)(?:\.(\d+))?$", col_name)
+        return int(match.group(2)) if match and match.group(2) else 0
+
+    def _impute_columns(self):
+        missing_value_all = self.data.isna().sum()
+        missing_value_threshold = self.data[self.required_covariates].isna().sum()
+        columns_to_drop = missing_value_all[missing_value_all > missing_value_threshold]
+        if not columns_to_drop.empty:
+            warnings.warn(
+                f"High missingness – dropping columns: {columns_to_drop.index.tolist()}"
+            )
+        self.data = self.data.drop(columns=columns_to_drop.index, errors="ignore")
+        self.data = self.data.drop(columns=self.cols2drop, errors="ignore")
+
+    def _partition_data(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
+        if self.data is None:
+            self._process_data()
+
+        self.data = self.data.sort_index()
+
+        fold_buckets = [
+            {"train": [], "test": []} for _ in range(self.partitioner.n_splits)
+        ]
+
+        for ticker, df_ticker in self.data.groupby("ticker"):
+            df_ticker = df_ticker.sort_index()
+
+            if isinstance(self.partitioner, PurgedGroupTimeSeriesPartition):
+                groups = df_ticker.index.normalize()  # one group per date
+            else:
+                groups = None
+
+            splits = list(self.partitioner.split(df_ticker, groups=groups))
+            if len(splits) != self.partitioner.n_splits:
+                raise RuntimeError(
+                    "Ticker {} produced {} splits but partitioner is configured for {}".format(
+                        ticker, len(splits), self.partitioner.n_splits
+                    )
+                )
+            for fold_id, (train_idx, test_idx) in enumerate(splits):
+                fold_buckets[fold_id]["train"].append(df_ticker.iloc[train_idx])
+                fold_buckets[fold_id]["test"].append(df_ticker.iloc[test_idx])
+
+        cv_folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
+        for bucket in fold_buckets:
+            train_df = pd.concat(bucket["train"]).sort_index()
+            test_df = pd.concat(bucket["test"]).sort_index()
+            cv_folds.append((train_df, test_df))
+        return cv_folds
+    
