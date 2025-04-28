@@ -5,241 +5,189 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
-import yfinance as yf
+import warnings
+
 from topquartile.modules.datamodule.transforms import (
-    CovariateTransform, LabelTransform)
+    CovariateTransform,
+    LabelTransform,
+)
+from topquartile.modules.datamodule.partitions import (
+    BasePurgedTimeSeriesPartition,
+    PurgedTimeSeriesPartition,
+    PurgedGroupTimeSeriesPartition,
+)
 
 
 class DataLoader:
-    def __init__(self, data_id: str, label_duration: int,
-                 covariate_transform: Optional[List[Tuple[Type[CovariateTransform], Dict]]] = None,
-                 label_transform: Optional[List[Tuple[Type[LabelTransform], Dict]]] = None,
-                 pred_length: int = 20, n_train: int = 252,
-                 n_test: int = 30, n_embargo: int = 20, save: bool = True, save_directory: str = ''):
+    def __init__(
+        self,
+        data_id: str,
+        *,
+        covariate_transform: Optional[
+            List[Tuple[Type[CovariateTransform], Dict]]
+        ] = None,
+        label_transform: Optional[
+            List[Tuple[Type[LabelTransform], Dict]]
+        ] = None,
+        cols2drop: Optional[List[str]] = None,
+        prediction_length: int = 20,
+        partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
+        partition_params: Optional[Dict] = None,
+    ):
         self.data_id = data_id
-        self.covariate_transform = covariate_transform
-        self.label_duration = label_duration
-        self.pred_length = pred_length
-        self.n_train = n_train
-        self.n_test = n_test
-        self.n_embargo = n_embargo
-        self.save = save
-        self.save_directory = save_directory
-        self.remove_last_n = self.label_duration
+        self.covariate_transform_config = covariate_transform or []
+        self.label_transform_config = label_transform or []
+        self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
+        self.prediction_length = prediction_length
 
-        self.covariate_transform_config = covariate_transform if covariate_transform else []
-        self.label_transform_config = label_transform if label_transform else []
+        if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
+            raise ValueError(
+                "partition_class must inherit from BasePurgedTimeSeriesPartition"
+            )
+        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(
+            **(partition_params or {})
+        )
 
-        self.data = None
-        self.labels = None
-        self.pred = None
+        self.data: Optional[pd.DataFrame] = None
+        self.tickernames: List[str] = []
+        self.required_covariates: set[str] = set()
+        self.preds: Optional[pd.DataFrame] = None
 
         root_path = Path(__file__).resolve().parent.parent.parent
-        self.covariates_path = root_path / 'data' / f'{self.data_id}.csv'
+        self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
 
-    def _apply_transforms(self):
+    def load_preds(self) -> pd.DataFrame:
+        if self.data is None:
+            self._process_data()
+
+        self.preds = (
+            self.data.groupby("ticker", group_keys=False).tail(self.prediction_length)
+        )
+        remaining_index = self.data.index.difference(self.preds.index)
+        self.data = self.data.loc[remaining_index]
+        return self.preds
+
+    def _process_data(self):
+        self._transform_data()
+        self._impute_columns()
+
+    def _transform_data(self):
         if self.data is None:
             self._load_data()
 
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
-                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of CovariateTransform")
-            try:
-                transformer_instance = TransformClass(df=self.data, **params)
-                self.data = transformer_instance.transform()
-            except Exception as e:
-                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+                raise ValueError(
+                    "Invalid transform in covariate_transform_config: must subclass CovariateTransform"
+                )
+            transformer = TransformClass(df=self.data, **params)
+            self.data = transformer.transform()
+            self.required_covariates.update(transformer.required_base)
 
         for TransformClass, params in self.label_transform_config:
             if not issubclass(TransformClass, LabelTransform):
-                raise ValueError(f"Warning: Invalid transform type in config: {TransformClass}. Must be a subclass of LabelTransform")
-            try:
-                transformer_instance = TransformClass(df=self.data, **params)
-                self.data = transformer_instance.transform()
-            except Exception as e:
-                raise ValueError (f"Error applying {TransformClass.__name__}: {e}")
+                raise ValueError(
+                    "Invalid transform in label_transform_config: must subclass LabelTransform"
+                )
+            transformer = TransformClass(df=self.data, **params)
+            self.data = transformer.transform()
 
         return self.data
 
-    def process_data(self):
-        pass
-
     def _load_data(self) -> pd.DataFrame:
-        ticker_df = pd.read_csv(self.covariates_path,
-                                skiprows=3, low_memory=False)
+        ticker_df = pd.read_csv(self.covariates_path, skiprows=3, low_memory=False)
 
-        tickernames = ticker_df.columns.tolist()
-        tickernames = [ticker for ticker in tickernames if not ticker.startswith('Unnamed')]
+        tickernames = [col for col in ticker_df.columns if not col.startswith("Unnamed")]
+        covariates = pd.read_csv(
+            self.covariates_path, skiprows=5, index_col=0, low_memory=False
+        )
+        covariates.dropna(inplace=True, axis=0, how="all")
+        covariates.dropna(inplace=True, axis=1, how="all")
+        covariates.index = pd.to_datetime(covariates.index, format="mixed")
 
-        covariates = pd.read_csv(self.covariates_path, skiprows=5, index_col=0, low_memory=False)
-        covariates.dropna(inplace=True, axis=0, how='all')
-        covariates.dropna(inplace=True, axis=1, how='all')
-
-        covariates.index = pd.to_datetime(covariates.index, format='mixed')
-
-        col_dict = defaultdict(list)
+        col_dict: dict[int, list[str]] = defaultdict(list)
         for col in covariates.columns:
             number = self._get_number(col)
             col_dict[number].append(col)
-
         max_number = max(col_dict.keys())
-        covlist = [None] * (max_number + 1)
-
+        covlist: list[pd.DataFrame] = [pd.DataFrame()] * (max_number + 1)
         for number in range(max_number + 1):
             cols = col_dict.get(number, [])
-            if cols:
-                covlist[number] = covariates[cols]
+            covlist[number] = covariates[cols] if cols else pd.DataFrame()
+
+        tickernames = [ticker[:4] for ticker in tickernames]  # "IMJS IJ EQUITY:1" → "IMJS"
+        first_occurrence: dict[str, int] = {}
+        duplicate_indices: list[int] = []
+        for idx, ticker in enumerate(tickernames):
+            if ticker in first_occurrence:
+                duplicate_indices.append(idx)
             else:
-                covlist[number] = pd.DataFrame()
-
-        tickernames = [ticker[:4] for ticker in tickernames] # Becos duplicates show as such "IMJS IJ EQUITY:1"
-
-        first_occurrence_index = {}
-        duplicate_indices = []
-
-        for index, ticker in enumerate(tickernames):
-            if ticker in first_occurrence_index:
-                duplicate_indices.append(index)
-            else:
-                first_occurrence_index[ticker] = index
-
-        unique_tickernames = []
-        unique_covlist = []
-        for index, ticker in enumerate(tickernames):
-            if index not in duplicate_indices:
+                first_occurrence[ticker] = idx
+        unique_covlist: list[pd.DataFrame] = []
+        unique_tickernames: list[str] = []
+        for idx, ticker in enumerate(tickernames):
+            if idx not in duplicate_indices:
+                unique_covlist.append(covlist[idx])
                 unique_tickernames.append(ticker)
-                unique_covlist.append(covlist[index])
-
         covlist = unique_covlist
         self.tickernames = unique_tickernames
 
         for idx, cov in enumerate(covlist):
             cov_copy = cov.copy()
-            cov_copy.loc[:, 'ticker'] = tickernames[idx]
-
+            cov_copy["ticker"] = tickernames[idx]
             if idx != 0:
-                cov_copy.columns = [col.split('.')[0] for col in cov_copy.columns]
+                cov_copy.columns = [col.split(".")[0] for col in cov_copy.columns]
             covlist[idx] = cov_copy
         self.data = pd.concat(covlist)
-
         return self.data
 
-
-    def _get_number(self, col_name):
-        match = re.match(r'^(.*?)(?:\.(\d+))?$', col_name)
-        if match.group(2):
-            return int(match.group(2))
-        else:
-            return 0
-
-    def _load_labels(self):
-        index_ticker = "^JKSE"
-        self.labels = yf.download(index_ticker, start='2014-01-01')
-        self.labels.index = pd.to_datetime(self.labels.index)
-        self.labels = self.labels.rename(columns=dict(Close='JKSE_PRICE'))
-        self.labels['PCT_CHANGE_JKSE'] = ((self.labels['JKSE_PRICE'].shift(-self.label_duration) - self.labels['JKSE_PRICE']) / self.labels['JKSE_PRICE']) * 100
-        self.labels['JKSE_Daily_Return'] = self.labels['JKSE_PRICE'].pct_change()
+    def _get_number(self, col_name: str) -> int:
+        match = re.match(r"^(.*?)(?:\.(\d+))?$", col_name)
+        return int(match.group(2)) if match and match.group(2) else 0
 
     def _impute_columns(self):
-        """
-        TODO: I dont like this, change to explicit call of features to use
-        maybe save columns required as datatransform class property
-        and then
-        """
+        missing_value_all = self.data.isna().sum()
+        missing_value_threshold = self.data[self.required_covariates].isna().sum()
+        columns_to_drop = missing_value_all[missing_value_all > missing_value_threshold]
+        if not columns_to_drop.empty:
+            warnings.warn(
+                f"High missingness – dropping columns: {columns_to_drop.index.tolist()}"
+            )
+        self.data = self.data.drop(columns=columns_to_drop.index, errors="ignore")
+        self.data = self.data.drop(columns=self.cols2drop, errors="ignore")
 
-        required_columns = [
-            'PX_LAST', 'RETURN_COM_EQY',
-            'CUR_MKT_CAP', 'PX_TO_BOOK_RATIO', 'PX_TO_SALES_RATIO',
-            'PROF_MARGIN', 'OPER_MARGIN', 'OPERATING_ROIC', 'SALES_GROWTH', 'PE_RATIO', 'RSI_30D', 'WACC', 'DEBT_TO_MKT_CAP'
+    def _partition_data(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
+        if self.data is None:
+            self._process_data()
+
+        self.data = self.data.sort_index()
+
+        fold_buckets = [
+            {"train": [], "test": []} for _ in range(self.partitioner.n_splits)
         ]
 
-        covlist_merged = pd.concat(self.covlist, axis=0)
-        missing_value_threshold = covlist_merged[required_columns].isna().sum().max()
+        for ticker, df_ticker in self.data.groupby("ticker"):
+            df_ticker = df_ticker.sort_index()
 
-        missing_counts_all = covlist_merged.isna().sum()
-        exclude_columns = ['EQY_DVD_YLD_IND', 'NEWS_SENTIMENT_DAILY_AVG']
-        columns_to_drop = missing_counts_all[missing_counts_all > missing_value_threshold].index.tolist()
+            if isinstance(self.partitioner, PurgedGroupTimeSeriesPartition):
+                groups = df_ticker.index.normalize()  # one group per date
+            else:
+                groups = None
 
-        for idx, cov in enumerate(self.covlist):
-            try:
-                self.covlist[idx] = self.covlist[idx].drop(axis=1, columns = columns_to_drop + exclude_columns)
-            except KeyError:
-                print(idx)
-                continue
-            try:
-                self.covlist[idx] = self.covlist[idx].drop(axis=1, columns = 'NEWS_SENTIMENT_DAILY_AVG')
-            except KeyError:
-                print(idx)
-                continue
+            splits = list(self.partitioner.split(df_ticker, groups=groups))
+            if len(splits) != self.partitioner.n_splits:
+                raise RuntimeError(
+                    "Ticker {} produced {} splits but partitioner is configured for {}".format(
+                        ticker, len(splits), self.partitioner.n_splits
+                    )
+                )
+            for fold_id, (train_idx, test_idx) in enumerate(splits):
+                fold_buckets[fold_id]["train"].append(df_ticker.iloc[train_idx])
+                fold_buckets[fold_id]["test"].append(df_ticker.iloc[test_idx])
 
-    def load_preds(self):
-        if self.covlist is None:
-            #TODO: Define Process data
-            self.process_data()
-
-        preds = []
-        for cov  in self.covlist:
-            preds.append(cov.iloc[:-self.remove_last_n])
-
-        self.covlist = [cov.iloc[:self.remove_last_n] for cov in self.covlist]
-        self.pred = pd.concat(preds, axis=0)
-        self.pred.drop(['NEWS_SENTIMENT_DAILY_AVG', 'NEWS_HEAT_PUB_DAVG'], axis=1, inplace=True)
-        return self.pred
-
-    def split_train_embargo_test(self, df, n_test=30, n_embargo=20, n_train=514):
-        df['dataset'] = np.nan
-        df['window'] = np.nan
-
-        total_rows = len(df)
-        window_number = 1
-
-        current_index = total_rows
-
-        # Apply rolling window starting from the bottom
-        while current_index > 0:
-            test_start = max(0, current_index - n_test)
-            embargo_start = max(0, test_start - n_embargo)
-            train_start = max(0, embargo_start - n_train)
-
-            df.iloc[test_start:current_index, df.columns.get_loc('dataset')] = 'test'
-            df.iloc[embargo_start:test_start, df.columns.get_loc('dataset')] = 'embargo'
-            df.iloc[train_start:embargo_start, df.columns.get_loc('dataset')] = 'train'
-
-            df.iloc[train_start:current_index, df.columns.get_loc('window')] = int(window_number)
-
-            # Update for the next window
-            current_index = train_start
-            window_number += 1
-
-        return df
-
-    def split_and_get_window(self, df, window_size):
-        for idx, cov in enumerate(self.covlist):
-            self.covlist[idx] = self.split_train_embargo_test(self.covlist[idx], n_train=self.n_train, n_test=self.n_test, n_embargo=self.n_embargo)
-
-        covlist_merge = []
-        for cov in self.covlist:
-            covlist_merge.append(cov[cov['window']] == 1.0)
-
-        self.window = pd.concat(covlist_merge, axis=0)
-        self.window.drop(['NEWS_SENTIMENT_DAILY_AVG', 'NEWS_HEAT_PUB_DAVG'], axis=1, inplace=True)
-
-    def label_top_n_percentile(self, df, column_name, n_percentile, target_column_name):
-        threshold = df[column_name].quantile(n_percentile / 100)
-        df[target_column_name] = (df[column_name] > threshold).astype(int)
-
-        return df
-
-    def label_window(self):
-        # TODO: This is crap
-        cwd = Path.cwd()
-
-        window1_labeled = self.label_top_n_percentile(self.window, 'DELTA', 80, 'TOP_QUANTILE')
-        df = window1_labeled.dropna(inplace=False, axis=0, how='any')
-        self.train_df =df[df['dataset'] == 'train']
-        self.test_df = df[df['dataset'] == 'test']
-        self.train_df.drop(['dataset', 'window', 'DELTA', 'PCT_CHANGE'], axis=1, inplace=True)
-        self.test_df.drop(['dataset', 'window', 'DELTA'], axis=1, inplace=True)
-
-        self.train_df.to_csv(cwd / 'data' / f'label_{self.label_duration}' / 'train_niuw.csv', index=True)
-        self.test_df.to_csv(cwd / 'data' / f'label_{self.label_duration}' / 'test_niuw.csv', index=True)
+        cv_folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
+        for bucket in fold_buckets:
+            train_df = pd.concat(bucket["train"]).sort_index()
+            test_df = pd.concat(bucket["test"]).sort_index()
+            cv_folds.append((train_df, test_df))
+        return cv_folds
