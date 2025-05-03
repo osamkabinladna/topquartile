@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+from typing import Optional
 import numpy as np
 from sklearn.model_selection._split import _BaseKFold, indexable, _num_samples
 from sklearn.utils.validation import _deprecate_positional_args
@@ -9,9 +10,8 @@ class BasePurgedTimeSeriesPartition(_BaseKFold, metaclass=ABCMeta):
     def __init__(
         self,
         n_splits: int = 5,
-        *,
-        max_train_size: int | None = None,
-        test_size: int | None = None,
+        max_train_size: Optional[int] = None,
+        test_size: Optional[int]= None,
         gap: int = 0,
         verbose: bool = False,
     ):
@@ -22,7 +22,7 @@ class BasePurgedTimeSeriesPartition(_BaseKFold, metaclass=ABCMeta):
         self.verbose = verbose
 
     @abstractmethod
-    def split(self, X, y=None, groups=None
+    def split(self, X, y=None, groups=None):
         raise NotImplementedError
 
 
@@ -83,9 +83,8 @@ class PurgedGroupTimeSeriesPartition(BasePurgedTimeSeriesPartition):
     def __init__(
         self,
         n_splits: int = 5,
-        *,
-        max_train_group_size: int | None = None,
-        max_test_group_size: int | None = None,
+        max_train_group_size: Optional[int] = None,
+        max_test_group_size: Optional[int] = None,
         gap: int = 0,
         verbose: bool = False,
     ):
