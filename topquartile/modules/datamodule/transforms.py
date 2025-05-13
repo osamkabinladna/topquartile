@@ -216,8 +216,8 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.turnover is not None:
-            warnings.warn(f"Turnover calculation not implemented. Requires additional data (Shares Outstanding).", UserWarning)
-            raise NotImplementedError
+            for window in self.turnover:
+                group_df[f'turnover_sma_{window}'] = group_df["TURNOVER"].rolling(window=window, min_periods=window).mean()
         return group_df
 
     def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
