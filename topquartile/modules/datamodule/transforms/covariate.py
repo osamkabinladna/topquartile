@@ -90,22 +90,31 @@ class TechnicalCovariateTransform(CovariateTransform):
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
 
+    # def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+    #     group = group.sort_index()
+    #     group = self._add_sma(group)
+    #     group = self._add_ema(group)
+    #     group = self._add_rsi(group)
+    #     group = self._add_macd(group)
+    #     group = self._add_obv(group)
+    #     group = self._add_roc(group)
+    #     group = self._add_volatility(group)
+    #     group = self._add_volume_sma(group)
+    #     group = self._add_volume_std(group)
+    #     group = self._add_vroc(group)
+    #     group = self._add_price_gap(group)
+    #     group = self._add_price_vs_sma(group)
+    #     group = self._add_turnover(group)
+    #     group = self._add_beta(group)
+    #     group = self._add_momentum_change(group)
+    #
+    #     return group
+
     def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+
         group = group.sort_index()
         group = self._add_sma(group)
         group = self._add_ema(group)
-        group = self._add_rsi(group)
-        group = self._add_macd(group)
-        group = self._add_obv(group)
-        group = self._add_roc(group)
-        group = self._add_volatility(group)
-        group = self._add_volume_sma(group)
-        group = self._add_volume_std(group)
-        group = self._add_vroc(group)
-        group = self._add_price_gap(group)
-        group = self._add_price_vs_sma(group)
-        group = self._add_turnover(group)
-        group = self._add_beta(group)
         group = self._add_momentum_change(group)
         group = self._add_ultimate(group) #TBC KN
         group = self._add_awesome(group) #TBC KN
@@ -198,12 +207,12 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
 
     def _add_momentum_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        print('this is group df', group_df)
         if self.momentum_change:
             if 'roc_126' not in group_df.columns:
                 shifted_price = group_df['PX_LAST'].shift(126)
                 group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
             group_df['momentum_change'] = group_df['roc_126'].diff(126)
+        return group_df
 
     def _add_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volatility is not None:
@@ -258,37 +267,39 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
     
     def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
-        required_cols = ['High', 'Low', 'PX_LAST']
-        if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
-                return group_df
+        if self.ultimate:
+            required_cols = ['PX_LOW', 'PX_HIGH', 'PX_LAST']
+            if not all(col in group_df.columns for col in required_cols):
+                    warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
+                    return group_df
 
-        close = group_df['PX_LAST']
-        high = group_df['High']
-        low = group_df['Low']
-        prior_close = close.shift(1)
+            close = group_df['PX_LAST']
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            prior_close = close.shift(1)
 
-        bp = close - np.minimum(low, prior_close)
-        tr = np.maximum(high, prior_close) - np.minimum(low, prior_close)
+            bp = close - np.minimum(low, prior_close)
+            tr = np.maximum(high, prior_close) - np.minimum(low, prior_close)
 
-        a1 = bp.rolling(7).sum() / tr.rolling(7).sum()
-        a2 = bp.rolling(14).sum() / tr.rolling(14).sum()
-        a3 = bp.rolling(28).sum() / tr.rolling(28).sum()
+            a1 = bp.rolling(7).sum() / tr.rolling(7).sum()
+            a2 = bp.rolling(14).sum() / tr.rolling(14).sum()
+            a3 = bp.rolling(28).sum() / tr.rolling(28).sum()
 
-        group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
+            group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
 
         return group_df
     
     def _add_awesome(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
-        if 'High' not in group_df.columns or 'Low' not in group_df.columns:
-            warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
-            return group_df
+        if self.awesome:
+            if 'PX_HIGH' not in group_df.columns or 'PX_LOW' not in group_df.columns:
+                warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
+                return group_df
 
-        median_price = (group_df['High'] + group_df['Low']) / 2
-        short_ma = median_price.rolling(window=5, min_periods=5).mean()
-        long_ma = median_price.rolling(window=34, min_periods=34).mean()
+            median_price = (group_df['HIGH'] + group_df['LOW']) / 2
+            short_ma = median_price.rolling(window=5, min_periods=5).mean()
+            long_ma = median_price.rolling(window=34, min_periods=34).mean()
 
-        group_df['awesome_oscillator'] = short_ma - long_ma
+            group_df['awesome_oscillator'] = short_ma - long_ma
         return group_df
     
     def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame:
