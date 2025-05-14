@@ -35,6 +35,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  trix: Optional[List[int]] = None, #TBC KN
                  atr: bool = False, #TBC KN
                  plus_di: bool = False, #TBC KN
+                 minus_di: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -62,6 +63,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param trix: List of window sizes for TRIX (Triple Exponential Average) indicator #TBC KN
         :param atr: Calculate Average True Range (ATR, default window = 14) #TBC KN
         :param plus_di: Calculate Positive Directional Indicator (Plus_DI) using ATR and directional movement #TBC KN
+        :param minus_di: Calculate Negative Directional Indicator (Minus_DI) using ATR and directional movement #TBC KN
         """
         super().__init__(df)
 
@@ -89,6 +91,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.atr = atr #TBC KN
         self.cmo = cmo #TBC KN
         self.plus_di = plus_di #TBC KN
+        self.minus_di = minus_di #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -132,6 +135,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_cmo(group) #TBC KN
         group = self._add_trix(group) #TBC KN
         group = self._add_atr(group) #TBC KN
+        group = self._add_minus_di(group) #TBC KN
         
         return group
 
@@ -418,7 +422,47 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['plus_di'] = (dm_smoothed / atr) * 100
         return group_df
-    
+    def _add_minus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.minus_di:
+            return group_df
+
+        required_cols = ['High', 'Low', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+            warnings.warn("Skipping Minus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
+            return group_df
+
+        n = 21
+        high = group_df['High']
+        low = group_df['Low']
+        close = group_df['PX_LAST']
+
+        prev_high = high.shift(1)
+        prev_low = low.shift(1)
+        prev_close = close.shift(1)
+
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs()
+        ], axis=1).max(axis=1)
+
+        atr = pd.Series(index=group_df.index, dtype='float64')
+        atr.iloc[n - 1] = tr.iloc[:n].mean()
+        for i in range(n, len(tr)):
+            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+
+        down_move = prev_low - low
+        up_move = high - prev_high
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+
+        dm_series = pd.Series(minus_dm, index=group_df.index)
+
+        dm_sum = dm_series.rolling(n).sum()
+        dm_mean = dm_series.rolling(n).mean()
+        dm_smoothed = dm_sum - dm_mean + dm_series
+
+        group_df['minus_di'] = (dm_smoothed / atr) * 100
+        return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
