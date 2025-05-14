@@ -33,6 +33,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  max_return: Optional[List[int]] = None, #TBC KN
                  cmo: Optional[List[int]] = None, #TBC KN
                  trix: Optional[List[int]] = None, #TBC KN
+                 atr: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -58,6 +59,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param max_return: List of window sizes (in days) to compute the maximum return over that rolling period #TBC KN
         :param cmo: List of window sizes for Chande Momentum Oscillator (CMO) #TBC KN
         :param trix: List of window sizes for TRIX (Triple Exponential Average) indicator #TBC KN
+        :param atr: Calculate Average True Range (ATR, default window = 14) #TBC KN
         """
         super().__init__(df)
 
@@ -82,6 +84,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.awesome = awesome #TBC KN
         self.max_return = max_return #TBC KN
         self.trix = trix #TBC KN
+        self.atr = atr #TBC KN
+        self.cmo = cmo #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -124,7 +128,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_max_return(group) #TBC KN
         group = self._add_cmo(group) #TBC KN
         group = self._add_trix(group) #TBC KN
-
+        group = self._add_atr(group) #TBC KN
+        
         return group
 
     def transform(self) -> pd.DataFrame:
@@ -306,7 +311,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['awesome_oscillator'] = short_ma - long_ma
         return group_df
     
-    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame:
+    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
         if self.max_return is not None:
             for window in self.max_return:
                 max_ret = (
@@ -315,7 +320,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'max_return_{window}'] = max_ret
         return group_df
     
-    def _add_cmo(self, group_df: pd.DataFrame) -> pd.DataFrame:
+    def _add_cmo(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
         if self.cmo is not None:
             close = group_df['PX_LAST']
             delta = close.diff()
@@ -331,7 +336,7 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         return group_df
     
-    def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame:
+    def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
         if 'PX_LAST' not in group_df.columns:
             warnings.warn("Skipping TRIX: 'PX_LAST' column not found.", UserWarning)
             return group_df
@@ -347,6 +352,30 @@ class TechnicalCovariateTransform(CovariateTransform):
         trix = ((ema3 - ema3_prev) / ema3_prev).replace([np.inf, -np.inf], np.nan)
 
         group_df['trix'] = trix
+        return group_df
+    
+    def _add_atr(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+        if not self.atr:
+            return group_df
+        if 'High' not in group_df.columns or 'Low' not in group_df.columns or 'PX_LAST' not in group_df.columns:
+            warnings.warn("Skipping ATR: required columns (High, Low, PX_LAST) not found.", UserWarning)
+            return group_df
+        
+        high = group_df['High']
+        low = group_df['Low']
+        close = group_df['PX_LAST']
+        prior_close = close.shift(1)
+        n = 14
+        tr = pd.concat([
+            (high - low),
+            (high - prior_close).abs(),
+            (low - prior_close).abs()
+        ], axis=1).max(axis=1)
+        atr = pd.Series(index=group_df.index, dtype='float64')
+        atr.iloc[n - 1] = tr.iloc[:n].mean()
+        for i in range(n, len(tr)):
+            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+        group_df['atr'] = atr
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
