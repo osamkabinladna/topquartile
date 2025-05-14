@@ -27,6 +27,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
                  price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
+                 momentum_change: Optional[bool] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -46,6 +47,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param price_vs_sma: List of window sizes for Price / SMA(window)
         :param turnover: List of window sizes for Turnover calculation (Placeholder - Requires definition)
         :param beta: List of window sizes for Beta calculation
+        :param momentum_change: Calculate momentum change ROC6m - ROC6mp
         """
         super().__init__(df)
 
@@ -65,6 +67,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.price_vs_sma = price_vs_sma
         self.turnover = turnover
         self.beta = beta
+        self.momentum_change = momentum_change
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -177,6 +180,14 @@ class TechnicalCovariateTransform(CovariateTransform):
                 shifted_price = group_df['PX_LAST'].shift(window)
                 group_df[f'roc_{window}'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
         return group_df
+
+    def _add_momentum_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        # TODO: CHECK THIS AGAIN!!!
+        if not self.momentum_change:
+            if 'roc_126' not in group_df.columns:
+                shifted_price = group_df['PX_LAST'].shift(126)
+                group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
+            group_df['momentum_change'] = group_df['roc_126'].diff(126)
 
     def _add_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volatility is not None:
