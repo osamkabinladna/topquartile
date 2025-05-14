@@ -36,6 +36,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  atr: bool = False, #TBC KN
                  plus_di: bool = False, #TBC KN
                  minus_di: bool = False, #TBC KN
+                 bb: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -64,6 +65,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param atr: Calculate Average True Range (ATR, default window = 14) #TBC KN
         :param plus_di: Calculate Positive Directional Indicator (Plus_DI) using ATR and directional movement #TBC KN
         :param minus_di: Calculate Negative Directional Indicator (Minus_DI) using ATR and directional movement #TBC KN
+        :param bb: Calculate Bollinger Bands (UB, LB, BB position) using typical price over n=20 days #TBC KN
         """
         super().__init__(df)
 
@@ -92,6 +94,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.cmo = cmo #TBC KN
         self.plus_di = plus_di #TBC KN
         self.minus_di = minus_di #TBC KN
+        self.bb = bb #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -136,6 +139,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_trix(group) #TBC KN
         group = self._add_atr(group) #TBC KN
         group = self._add_minus_di(group) #TBC KN
+        group = self._add_bb(group) #TBC KN
         
         return group
 
@@ -364,12 +368,12 @@ class TechnicalCovariateTransform(CovariateTransform):
     def _add_atr(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
         if not self.atr:
             return group_df
-        if 'High' not in group_df.columns or 'Low' not in group_df.columns or 'PX_LAST' not in group_df.columns:
+        if 'PX_HIGH' not in group_df.columns or 'Low' not in group_df.columns or 'PX_LAST' not in group_df.columns:
             warnings.warn("Skipping ATR: required columns (High, Low, PX_LAST) not found.", UserWarning)
             return group_df
         
-        high = group_df['High']
-        low = group_df['Low']
+        high = group_df['PX_HIGH']
+        low = group_df['PX_LOW']
         close = group_df['PX_LAST']
         prior_close = close.shift(1)
         n = 14
@@ -388,14 +392,14 @@ class TechnicalCovariateTransform(CovariateTransform):
         if not self.plus_di:
             return group_df
 
-        required_cols = ['High', 'Low', 'PX_LAST']
+        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
         if not all(col in group_df.columns for col in required_cols):
-            warnings.warn("Skipping Plus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
+            warnings.warn("Skipping Plus_DI: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
             return group_df
 
         n = 21
-        high = group_df['High']
-        low = group_df['Low']
+        high = group_df['PX_HIGH']
+        low = group_df['PX_LOW']
         close = group_df['PX_LAST']
 
         prev_high = high.shift(1)
@@ -422,18 +426,19 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['plus_di'] = (dm_smoothed / atr) * 100
         return group_df
+    
     def _add_minus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.minus_di:
             return group_df
 
-        required_cols = ['High', 'Low', 'PX_LAST']
+        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
         if not all(col in group_df.columns for col in required_cols):
             warnings.warn("Skipping Minus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
             return group_df
 
         n = 21
-        high = group_df['High']
-        low = group_df['Low']
+        high = group_df['PX_HIGH']
+        low = group_df['PX_LOW']
         close = group_df['PX_LAST']
 
         prev_high = high.shift(1)
@@ -463,6 +468,34 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['minus_di'] = (dm_smoothed / atr) * 100
         return group_df
+    
+    def _add_bb(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.bb:
+            return group_df
+
+        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+            warnings.warn("Skipping Bollinger Bands: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
+            return group_df
+
+        n = 20
+        high = group_df['PX_HIGH']
+        low = group_df['PX_LOW']
+        close = group_df['PX_LAST']
+
+        tp = (high + low + close) / 3
+        tp_mean = tp.rolling(window=n).mean()
+        tp_std = tp.rolling(window=n).std()
+
+        upper_band = tp_mean + 2 * tp_std
+        lower_band = tp_mean - 2 * tp_std
+
+        group_df['bb_upper'] = upper_band
+        group_df['bb_lower'] = lower_band
+        group_df['bb_position'] = (close - lower_band) / (upper_band - lower_band).replace(0, np.nan)
+
+        return group_df
+
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
