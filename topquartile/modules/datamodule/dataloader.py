@@ -13,6 +13,7 @@ from topquartile.modules.datamodule.partitions import (
     PurgedGroupTimeSeriesPartition,
 )
 
+
 class DataLoader:
     def __init__(
         self,
@@ -94,6 +95,7 @@ class DataLoader:
         if self.data is None:
             self._load_data()
 
+
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
                 raise ValueError(
@@ -104,19 +106,15 @@ class DataLoader:
             self.data = transformer.transform()
             self.required_covariates.update(transformer.required_base)
 
+
         for TransformClass, params in self.label_transform_config:
             if not issubclass(TransformClass, LabelTransform):
                 raise ValueError(
                     "Invalid transform in label_transform_config: must subclass LabelTransform"
                 )
             print(f" Applying {TransformClass.__name__} with params {params}")
-            if 'target_column' in params and params['target_column'] not in self.data.columns:
-                 print(f"Warning: Target column '{params['target_column']}' not found for {TransformClass.__name__}. Skipping or creating dummy.")
-                 if 'PX_LAST' in self.data.columns:
-                     self.data[params['target_column']] = self.data['PX_LAST']
-                 else:
-                     self.data[params['target_column']] = 0
 
+            expected_price_col = params.get('price_column', 'PX_LAST')
             transformer = TransformClass(df=self.data, **params)
             self.data = transformer.transform()
         return self.data
@@ -148,8 +146,6 @@ class DataLoader:
         covariates.dropna(inplace=True, axis=0, how="all")
         covariates.dropna(inplace=True, axis=1, how="all")
         covariates.index = pd.to_datetime(covariates.index, errors='coerce', format='mixed')
-        print(covariates.index.name)
-        # covariates.dropna(axis=0, subset=[covariates.index.name], inplace=True)
 
         num_tickers = len(raw_tickernames)
         print(f"Found {num_tickers} raw ticker names.")
@@ -159,7 +155,6 @@ class DataLoader:
             number = self._get_number(col)
             if number < num_tickers :
                  col_dict[number].append(col)
-
 
         covlist: list[pd.DataFrame] = [pd.DataFrame(index=covariates.index) for _ in range(num_tickers)]
 
@@ -184,7 +179,6 @@ class DataLoader:
         unique_covlist = [covlist[idx] for idx in unique_indices if idx < len(covlist)]
         self.tickernames = unique_tickernames_list
 
-        print(f"Using {len(self.tickernames)} unique tickers.")
         final_covlist = []
         for idx, cov_df in enumerate(unique_covlist):
              if not cov_df.empty:
@@ -200,8 +194,6 @@ class DataLoader:
              self.data['ticker'] = self.data['ticker'].astype('category')
              self.data.sort_index(inplace=True)
 
-
-        print(f"Data loaded. Shape: {self.data.shape}")
         return self.data
 
     def _get_base_col_name(self, col_name: str) -> str:
@@ -220,12 +212,12 @@ class DataLoader:
         return 0
 
     def _impute_columns(self):
+        #TODO: Refactor this to just specify which original columns to use and throw away the rest
         print("Imputing/dropping columns based on missingness...")
         if self.data is None or self.data.empty:
             print("No data to impute.")
             return
 
-        # Ensure required covariates exist before checking missingness
         valid_required_covariates = [col for col in self.required_covariates if col in self.data.columns]
         if not valid_required_covariates:
             print("Warning: No required covariates found in data for imputation thresholding.")
@@ -315,7 +307,6 @@ class DataLoader:
             except Exception as e:
                  warnings.warn(f"Error partitioning ticker {ticker}: {e}. Skipping this ticker.")
                  continue
-
 
         cv_folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
         for fold_id, bucket in enumerate(fold_buckets):

@@ -79,25 +79,45 @@ class TechnicalCovariateTransform(CovariateTransform):
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
 
+    # def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+    #     group = group.sort_index()
+    #     group = self._add_sma(group)
+    #     group = self._add_ema(group)
+    #     group = self._add_rsi(group)
+    #     group = self._add_macd(group)
+    #     group = self._add_obv(group)
+    #     group = self._add_roc(group)
+    #     group = self._add_volatility(group)
+    #     group = self._add_volume_sma(group)
+    #     group = self._add_volume_std(group)
+    #     group = self._add_vroc(group)
+    #     group = self._add_price_gap(group)
+    #     group = self._add_price_vs_sma(group)
+    #     group = self._add_turnover(group)
+    #     group = self._add_beta(group)
+    #     group = self._add_momentum_change(group)
+    #
+    #     return group
+
     def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
-        group = group.sort_index()
+        # This method is called for each 'ticker' group by the .apply()
+
+        group = group.sort_index()  # Good practice
         group = self._add_sma(group)
         group = self._add_ema(group)
-        group = self._add_rsi(group)
-        group = self._add_macd(group)
-        group = self._add_obv(group)
-        group = self._add_roc(group)
-        group = self._add_volatility(group)
-        group = self._add_volume_sma(group)
-        group = self._add_volume_std(group)
-        group = self._add_vroc(group)
-        group = self._add_price_gap(group)
-        group = self._add_price_vs_sma(group)
-        group = self._add_turnover(group)
-        group = self._add_beta(group)
         group = self._add_momentum_change(group)
 
-        return group
+
+        if not group.empty:
+            # Add a simple, undeniable column to the group
+            group['test_col_technical'] = 1  # Or range(len(group))
+
+            # Optional: Print to see what each group looks like before returning
+            # print(f"  [Debug group_transform] Ticker: {group['ticker'].iloc[0] if 'ticker' in group.columns and not group.empty else 'N/A'}, Input Shape: {group.shape_before_adding_col_if_you_tracked_it}, Output Shape: {group.shape}")
+        # else:
+        # print(f"  [Debug group_transform] Received an empty group.")
+
+        return group  # Return the (potentially modified) group
 
     def transform(self) -> pd.DataFrame:
         transformed_df = self.df.groupby('ticker', group_keys=True, observed=False).apply(self.group_transform)
@@ -183,12 +203,12 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
 
     def _add_momentum_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        print('this is group df', group_df)
         if self.momentum_change:
             if 'roc_126' not in group_df.columns:
                 shifted_price = group_df['PX_LAST'].shift(126)
                 group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
             group_df['momentum_change'] = group_df['roc_126'].diff(126)
+        return group_df
 
     def _add_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volatility is not None:
