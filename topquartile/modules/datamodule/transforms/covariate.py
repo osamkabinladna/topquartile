@@ -332,13 +332,21 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
     
     def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if self.trix is not None:
-            for window in self.trix:
-                ema1 = group_df['PX_LAST'].ewm(span=window, adjust=False, min_periods=window).mean()
-                ema2 = ema1.ewm(span=window, adjust=False, min_periods=window).mean()
-                ema3 = ema2.ewm(span=window, adjust=False, min_periods=window).mean()
-                trix = ema3.pct_change().replace([np.inf, -np.inf], np.nan) * 100
-                group_df[f'trix_{window}'] = trix
+        if 'PX_LAST' not in group_df.columns:
+            warnings.warn("Skipping TRIX: 'PX_LAST' column not found.", UserWarning)
+            return group_df
+
+        close = group_df['PX_LAST']
+        n = 21
+
+        ema1 = close.ewm(span=n, adjust=False, min_periods=n).mean()
+        ema2 = ema1.ewm(span=n, adjust=False, min_periods=n).mean()
+        ema3 = ema2.ewm(span=n, adjust=False, min_periods=n).mean()
+        ema3_prev = ema3.shift(1)
+
+        trix = ((ema3 - ema3_prev) / ema3_prev).replace([np.inf, -np.inf], np.nan)
+
+        group_df['trix'] = trix
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
