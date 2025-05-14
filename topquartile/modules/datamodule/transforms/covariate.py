@@ -27,7 +27,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
                  price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
-                 momentum_change: Optional[bool] = None,
+                 momentum_change: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -95,6 +95,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_price_vs_sma(group)
         group = self._add_turnover(group)
         group = self._add_beta(group)
+        group = self._add_momentum_change(group)
 
         return group
 
@@ -182,8 +183,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
 
     def _add_momentum_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        # TODO: CHECK THIS AGAIN!!!
-        if not self.momentum_change:
+        print('this is group df', group_df)
+        if self.momentum_change:
             if 'roc_126' not in group_df.columns:
                 shifted_price = group_df['PX_LAST'].shift(126)
                 group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
@@ -234,6 +235,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         if self.turnover is not None:
             for window in self.turnover:
                 group_df[f'turnover_{window}'] = group_df['TURNOVER'].rolling(window=window).mean()
+        return group_df
 
     def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.beta:
