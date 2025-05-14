@@ -48,8 +48,7 @@ class DataLoader:
         try:
             root_path = Path(__file__).resolve().parent.parent.parent
         except NameError:
-             print("Warning: __file__ not defined. Assuming current working directory structure.")
-             root_path = Path(".") # Or provide a specific path to your project root
+             root_path = Path().resolve().parent.parent.parent
 
         self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
 
