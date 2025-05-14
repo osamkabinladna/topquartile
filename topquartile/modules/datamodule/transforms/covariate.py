@@ -1,5 +1,4 @@
 import pandas as pd
-from pandas.tseries.offsets import BDay
 import numpy as np
 from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
@@ -97,7 +96,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group
 
     def transform(self) -> pd.DataFrame:
-        transformed_df = self.df.groupby('ticker', group_keys=True).apply(self.group_transform)
+        transformed_df = self.df.groupby('ticker', group_keys=True, observed=False).apply(self.group_transform)
         return transformed_df.sort_index()
 
 
@@ -214,17 +213,21 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'vroc_{window}'] = ((group_df['VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
         return group_df
 
+    def _add_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.sma is not None:
+            for window in self.sma:
+                group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+        return group_df
+
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.turnover is not None:
-            warnings.warn(f"Turnover calculation not implemented. Requires additional data (Shares Outstanding).", UserWarning)
-            raise NotImplementedError
-        return group_df
+            for window in self.turnover:
+                group_df[f'turnover_{window}'] = group_df['TURNOVER'].rolling(window=window).mean()
 
     def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.beta:
             raise NotImplementedError
         return group_df
-
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
@@ -303,7 +306,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         return group
 
     def transform(self) -> pd.DataFrame:
-        transformed_df = self.df.groupby(level='ticker', group_keys=False).apply(self.group_transform)
+        transformed_df = self.df.groupby(level='ticker', group_keys=False, observed=False).apply(self.group_transform)
         return transformed_df.sort_index()
 
 
@@ -408,133 +411,4 @@ class FundamentalCovariateTransform(CovariateTransform):
             group_df['eps_growth'] = growth.replace([np.inf, -np.inf], np.nan)
         return group_df
 
-
-class LabelTransform:
-    def __init__(self, df: pd.DataFrame):
-        if not isinstance(df, pd.DataFrame):
-            raise ValueError("Input must be a pandas DataFrame")
-        self.df = df
-
-    def transform(self) -> pd.DataFrame:
-        raise NotImplementedError
-
-
-class BinaryLabelTransform(LabelTransform):
-    def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
-                 index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
-                 ticker_level_name: str = 'ticker',
-                 date_level_name: str = 'Dates'):
-        """
-        :param df: dataframe to be transformed
-        :param label_duration: asset holding period
-        :param quantile: quantile of labels
-        :param index_ticker: ticker of market index
-        :param price_column: column name of price
-        :param ticker_level_name: Multiindex name for ticker
-        :param date_level_name: Multiindex name for date
-        """
-        super().__init__(df)
-        self.label_duration = label_duration
-        self.quantile = quantile
-        self.index_ticker = index_ticker
-        self.price_column = price_column
-        self.label_col_name = 'label'
-        self.ticker_level_name = ticker_level_name
-        self.date_level_name = date_level_name
-
-
-    def _calculate_returns(self, series: pd.Series) -> pd.Series:
-        future_price = series.shift(-self.label_duration)
-        returns = ((future_price - series) / series) * 100
-        return returns
-
-    def _get_index_returns(self) -> pd.Series:
-        unique_dates = self.df.index.get_level_values(self.date_level_name).unique()
-        if not pd.api.types.is_datetime64_any_dtype(unique_dates.dtype):
-            try:
-                unique_dates = pd.to_datetime(unique_dates)
-            except Exception as e:
-                raise ValueError(f"Could not convert unique dates from level '{self.date_level_name}' for yfinance download. Check data. Error: {e}") from e
-
-        unique_dates = unique_dates.sort_values()
-        if unique_dates.empty:
-            raise ValueError(f"No dates found in the DataFrame's '{self.date_level_name}' index level.")
-
-        start_date = unique_dates.min()
-        required_end_date = unique_dates.max()
-
-        try:
-            index_data = yf.download(self.index_ticker, start=start_date, end=required_end_date,
-                progress=False, auto_adjust=False)
-        except Exception as e:
-            raise ConnectionError(f"Failed to download index data for {self.index_ticker}: {e}")
-
-        index_data.index = pd.to_datetime(index_data.index)
-        price_col_yf = 'Close'
-
-        price_data_selection = index_data[price_col_yf]
-        if isinstance(price_data_selection, pd.DataFrame):
-            if price_data_selection.shape[1] == 1:
-                price_series = price_data_selection.iloc[:, 0]
-            else:
-                raise TypeError(f"Selection of '{price_col_yf}' yielded DataFrame with multiple columns: {price_data_selection.columns}. Cannot proceed.")
-        elif isinstance(price_data_selection, pd.Series):
-            price_series = price_data_selection
-        else:
-            raise TypeError(f"Selection of '{price_col_yf}' yielded unexpected type: {type(price_data_selection)}")
-
-        index_returns = self._calculate_returns(price_series)
-
-        if not isinstance(index_returns, pd.Series):
-            raise TypeError(f"_calculate_returns function unexpectedly returned a {type(index_returns)}, expected Series.")
-
-        index_returns.name = 'INDEX_RETURN'
-        aligned_index_returns = index_returns.reindex(unique_dates)
-
-        nan_count = aligned_index_returns.isnull().sum()
-        if pd.api.types.is_scalar(nan_count):
-            if nan_count > 0:
-                print(f"Warning: {nan_count} NaN values found in index returns after aligning.")
-        else:
-            raise TypeError(f"Calculation of NaN count failed. Expected scalar, got {type(nan_count)}. This might indicate aligned_index_returns is not a Series.")
-
-        return aligned_index_returns
-
-    def _assign_label(self, group: pd.DataFrame) -> pd.Series:
-        excess_return_col = 'EXCESS_RETURN'
-        valid_returns = group[excess_return_col].dropna()
-        if valid_returns.empty:
-            return pd.Series(pd.NA, index=group.index, dtype='Int64')
-        quantile_threshold = valid_returns.quantile(self.quantile)
-        if pd.isna(quantile_threshold):
-            return pd.Series(pd.NA, index=group.index, dtype='Int64')
-        label = (group[excess_return_col] >= quantile_threshold)
-        label = label.astype(float).where(group[excess_return_col].notna()).astype('Int64')
-        return label
-
-    def transform(self) -> pd.DataFrame:
-        df_copy = self.df.copy()
-        df_copy = df_copy.sort_index(level=[self.ticker_level_name, self.date_level_name])
-
-        date_level_values = df_copy.index.get_level_values(self.date_level_name)
-        if not pd.api.types.is_datetime64_any_dtype(date_level_values.dtype):
-            try:
-                new_levels = [
-                    df_copy.index.get_level_values(self.ticker_level_name),
-                    pd.to_datetime(date_level_values)
-                ]
-                new_names = [self.ticker_level_name, self.date_level_name]
-                df_copy.index = pd.MultiIndex.from_arrays(new_levels, names=new_names)
-            except Exception as e:
-                raise ValueError(f"Could not convert the '{self.date_level_name}' index level to datetime. Please check the data. Error: {e}") from e
-
-        stock_return_col = f'{self.label_duration}d_stock_return'
-        df_copy[stock_return_col] = df_copy.groupby(level=self.ticker_level_name, group_keys=False)[self.price_column].apply(self._calculate_returns)
-        index_returns_series = self._get_index_returns()
-        df_copy = df_copy.join(index_returns_series, on=self.date_level_name)
-        excess_return_col = 'EXCESS_RETURN'
-        df_copy[excess_return_col] = df_copy[stock_return_col] - df_copy['INDEX_RETURN']
-        df_copy[self.label_col_name] = df_copy.groupby(level=self.date_level_name, group_keys=False).apply(self._assign_label)
-
-        return df_copy
 

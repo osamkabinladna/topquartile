@@ -1,13 +1,11 @@
 import pandas as pd
-import numpy as np
-import os
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
 import warnings
 
-from topquartile.modules.datamodule.transforms import (
+from topquartile.modules.datamodule.transforms.covariate import (
     CovariateTransform,
     LabelTransform,
 )
@@ -56,7 +54,6 @@ class DataLoader:
              root_path = Path(".") # Or provide a specific path to your project root
 
         self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
-        print(f"Expecting data file at: {self.covariates_path}")
 
 
     def load_preds(self) -> pd.DataFrame:
@@ -92,11 +89,11 @@ class DataLoader:
         return self.preds
 
     def _process_data(self):
-        self._transform_data()
+        self.transform_data()
         self._impute_columns()
         print("Data processing complete.")
 
-    def _transform_data(self):
+    def transform_data(self):
         if self.data is None:
             print("Loading data from file...")
             self._load_data()
@@ -157,7 +154,8 @@ class DataLoader:
         covariates.dropna(inplace=True, axis=0, how="all")
         covariates.dropna(inplace=True, axis=1, how="all")
         covariates.index = pd.to_datetime(covariates.index, errors='coerce', format='mixed')
-        covariates.dropna(axis=0, subset=[covariates.index.name], inplace=True)
+        print(covariates.index.name)
+        # covariates.dropna(axis=0, subset=[covariates.index.name], inplace=True)
 
         num_tickers = len(raw_tickernames)
         print(f"Found {num_tickers} raw ticker names.")
@@ -216,6 +214,9 @@ class DataLoader:
          return str(col_name).split('.')[0]
 
     def _get_number(self, col_name: str) -> int:
+        """
+        thank you chat gpt, i could never in a million years figure out how to do this
+        """
         match = re.match(r"^(.*?)(?:\.(\d+))?$", str(col_name))
         if match and match.group(2) is not None:
             try:
@@ -295,7 +296,6 @@ class DataLoader:
                  continue
 
             if isinstance(self.partitioner, PurgedGroupTimeSeriesPartition):
-                # Groups are typically time-based (e.g., daily, monthly)
                 # Using normalized index (date part) as groups
                 groups = df_ticker.index.normalize()
                 print(f" Using date groups for ticker {ticker} with PurgedGroupTimeSeriesPartition.")
@@ -307,10 +307,8 @@ class DataLoader:
                 splits = list(self.partitioner.split(df_ticker, groups=groups))
                 if len(splits) != self.partitioner.n_splits:
                      warnings.warn(
-                         "Ticker {} produced {} splits but partitioner is configured for {}. This might happen with short series or large purge/embargo values.".format(
-                             ticker, len(splits), self.partitioner.n_splits
+                         f"Ticker {ticker} produced {len(splits)} splits but partitioner is configured for {self.partitioner.n_splits}. This might happen with short series or large purge/embargo values."
                          )
-                     )
                      if not splits: continue
 
                 for fold_id, (train_idx, test_idx) in enumerate(splits):
