@@ -16,29 +16,30 @@ class LabelTransform(ABC):
         raise NotImplementedError
 
 
-class BinaryLabelTransform(LabelTransform):
-    def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
+class ExcessReturnTransform(LabelTransform):
+    def __init__(self, df: pd.DataFrame, label_duration: int,
                  index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
                  ticker_level_name: str = 'ticker',
                  date_level_name: str = 'Dates'):
         """
+        Calculates excess returns for assets compared to a market index (IHSG Default).
+
         :param df: dataframe to be transformed
-        :param label_duration: asset holding period
-        :param quantile: quantile of labels
+        :param label_duration: asset holding period for return calculation
         :param index_ticker: ticker of market index
-        :param price_column: column name of price
+        :param price_column: column name of asset price
         :param ticker_level_name: Multiindex name for ticker
         :param date_level_name: Multiindex name for date
         """
         super().__init__(df)
         self.label_duration = label_duration
-        self.quantile = quantile
         self.index_ticker = index_ticker
         self.price_column = price_column
-        self.label_col_name = 'label'
         self.ticker_level_name = ticker_level_name
         self.date_level_name = date_level_name
-
+        self.stock_return_col_name = f'{self.label_duration}d_stock_return'
+        self.index_return_col_name = 'INDEX_RETURN'
+        self.excess_return_col_name = 'EXCESS_RETURN'
 
     def _calculate_returns(self, series: pd.Series) -> pd.Series:
         future_price = series.shift(-self.label_duration)
@@ -46,7 +47,9 @@ class BinaryLabelTransform(LabelTransform):
         return returns
 
     def _get_index_returns(self) -> pd.Series:
-        unique_dates = self.df.index.get_level_values(self.date_level_name).unique()
+        df_for_dates = self.df
+        unique_dates = df_for_dates.index.get_level_values(self.date_level_name).unique()
+
         if not pd.api.types.is_datetime64_any_dtype(unique_dates.dtype):
             try:
                 unique_dates = pd.to_datetime(unique_dates)
@@ -59,33 +62,32 @@ class BinaryLabelTransform(LabelTransform):
             raise ValueError(f"No dates found in the DataFrame's '{self.date_level_name}' index level.")
 
         start_date = unique_dates.min()
-        required_end_date = unique_dates.max()
-        try:
-            from pandas.tseries.offsets import BDay
-            download_end_date = required_end_date + BDay(1)
-        except ImportError:
-            print("Warning: pandas.tseries.offsets not available. Using max date directly.")
-            download_end_date = required_end_date
+        required_end_date_for_prices = unique_dates.max()
+        if self.label_duration > 0:
+            buffer_days = pd.Timedelta(days=self.label_duration * 2 + 30)  # A generous buffer
+            fetch_end_date = required_end_date_for_prices + buffer_days
+        else:
+            fetch_end_date = required_end_date_for_prices
 
-        print(f"Attempting yfinance download for {self.index_ticker} from {start_date} to {download_end_date}")
         try:
-            index_data = yf.download(self.index_ticker, start=start_date, end=download_end_date,
+            index_data = yf.download(self.index_ticker, start=start_date, end=fetch_end_date,
                                      progress=False, auto_adjust=False)
         except Exception as e:
-            raise ConnectionError(f"Failed to download index data for {self.index_ticker}: {e}")
+            raise ConnectionError(
+                f"Failed to download index data for {self.index_ticker} from {start_date} to {fetch_end_date}: {e}")
 
         if index_data.empty:
-            raise ValueError(f"No data downloaded from yfinance for {self.index_ticker} in the specified range.")
+            raise ValueError(
+                f"No data downloaded for index {self.index_ticker} from {start_date} to {fetch_end_date}. Check ticker and date range.")
 
         index_data.index = pd.to_datetime(index_data.index)
         price_col_yf = 'Close'
 
         if price_col_yf not in index_data.columns:
             raise KeyError(
-                f"Column '{price_col_yf}' not found in downloaded yfinance data for {self.index_ticker}. Available columns: {index_data.columns.tolist()}")
+                f"Column '{price_col_yf}' not found in downloaded index data. Available columns: {index_data.columns}")
 
         price_data_selection = index_data[price_col_yf]
-
         if isinstance(price_data_selection, pd.DataFrame):
             if price_data_selection.shape[1] == 1:
                 price_series = price_data_selection.iloc[:, 0]
@@ -97,89 +99,121 @@ class BinaryLabelTransform(LabelTransform):
         else:
             raise TypeError(f"Selection of '{price_col_yf}' yielded unexpected type: {type(price_data_selection)}")
 
-        index_returns_raw = self._calculate_returns(price_series)
+        index_returns = self._calculate_returns(price_series)
 
-        if not isinstance(index_returns_raw, pd.Series):
+        if not isinstance(index_returns, pd.Series):
             raise TypeError(
-                f"_calculate_returns function unexpectedly returned a {type(index_returns_raw)}, expected Series.")
+                f"_calculate_returns function unexpectedly returned a {type(index_returns)}, expected Series.")
 
-        raw_return_dates = index_returns_raw.index
-        nans_before_reindex = index_returns_raw.isnull().sum()
+        index_returns.name = self.index_return_col_name
 
-        if index_returns_raw.index.tz is None and unique_dates.tz is not None:
+        aligned_index_returns = index_returns.reindex(unique_dates)
+
+        nan_count = aligned_index_returns.isnull().sum()
+        if pd.api.types.is_scalar(nan_count):
             print(
-                "Warning: Raw index dates are timezone-naive, but target dates have timezone. Localizing target dates.")
-            try:
-                unique_dates = unique_dates.tz_localize(None)
-            except TypeError:
-                pass
-        elif index_returns_raw.index.tz is not None and unique_dates.tz is None:
-            print(
-                "Warning: Raw index dates have timezone, but target dates are naive. Removing timezone from raw dates.")
-            raw_return_dates = index_returns_raw.index.tz_localize(None)
-            index_returns_raw.index = raw_return_dates
-
-        aligned_index_returns = index_returns_raw.reindex(unique_dates)
-        aligned_index_returns.name = 'INDEX_RETURN'
-
-        total_nans_after_reindex = aligned_index_returns.isnull().sum()
-        dates_introduced_by_reindex = unique_dates.difference(raw_return_dates)
-
-        nans_at_introduced_dates = 0
-        if not dates_introduced_by_reindex.empty:
-            nans_at_introduced_dates = aligned_index_returns.loc[dates_introduced_by_reindex].isnull().sum()
+                f"Info: {nan_count} NaN values in aligned index returns (total {len(aligned_index_returns)}). This is expected for last {self.label_duration} periods or due to missing market data on specific dates.")
         else:
-            pass
+            raise TypeError(
+                f"Calculation of NaN count failed. Expected scalar, got {type(nan_count)}. This might indicate aligned_index_returns is not a Series.")
 
-        if nans_at_introduced_dates > 0:
-            print(
-                f"   -> {nans_at_introduced_dates} NaN(s) were introduced because the corresponding date(s) were missing in the downloaded '{self.index_ticker}' price data index.")
-        elif total_nans_after_reindex > nans_before_reindex:
-            print(
-                f"   -> Total NaNs increased from {nans_before_reindex} to {total_nans_after_reindex}, but not attributed to missing dates. Manual check recommended.")
-        else:
-            print(
-                f"   ->  No NaNs seem to have been introduced *solely* due to the reindexing process itself for missing dates.")
-            if total_nans_after_reindex > 0:
-                print(
-                    f"      Remaining {total_nans_after_reindex} NaNs likely originate from yfinance data gaps or the forward return calculation window.")
         return aligned_index_returns
 
+    def transform(self) -> pd.DataFrame:
+        df_transformed = self.df
+
+        df_transformed = df_transformed.sort_index(level=[self.ticker_level_name, self.date_level_name])
+
+        date_level_values = df_transformed.index.get_level_values(self.date_level_name)
+        if not pd.api.types.is_datetime64_any_dtype(date_level_values.dtype):
+            try:
+                new_levels = list(df_transformed.index.levels)
+                date_level_idx = df_transformed.index.names.index(self.date_level_name)
+                new_levels[date_level_idx] = pd.to_datetime(date_level_values.unique())
+
+                current_levels = [df_transformed.index.get_level_values(name) for name in df_transformed.index.names]
+                current_levels[date_level_idx] = pd.to_datetime(current_levels[date_level_idx])
+                df_transformed.index = pd.MultiIndex.from_arrays(current_levels, names=df_transformed.index.names)
+                df_transformed = df_transformed.sort_index(
+                    level=[self.ticker_level_name, self.date_level_name])  # Re-sort after potential reindexing
+
+            except Exception as e:
+                raise ValueError(
+                    f"Could not convert the '{self.date_level_name}' index level to datetime. Please check the data. Error: {e}") from e
+
+        df_transformed[self.stock_return_col_name] = df_transformed.groupby(
+            level=self.ticker_level_name, group_keys=False
+        )[self.price_column].apply(self._calculate_returns)
+
+        index_returns_series = self._get_index_returns()
+        df_transformed = df_transformed.join(index_returns_series, on=self.date_level_name)
+
+        df_transformed[self.excess_return_col_name] = df_transformed[self.stock_return_col_name] - df_transformed[
+            self.index_return_col_name]
+
+        self.df = df_transformed
+        return self.df
+
+
+class BinaryLabelTransform(ExcessReturnTransform):
+    def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
+                 index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
+                 ticker_level_name: str = 'ticker',
+                 date_level_name: str = 'Dates'):
+        """
+        Generates binary labels based on whether an asset's excess return
+        is in the top quantile for a given date.
+
+        :param df: dataframe to be transformed
+        :param label_duration: asset holding period
+        :param quantile: quantile of excess returns to define the top performers (e.g., 0.8 for top 20%)
+        :param index_ticker: ticker of market index
+        :param price_column: column name of price
+        :param ticker_level_name: Multiindex name for ticker
+        :param date_level_name: Multiindex name for date
+        """
+        super().__init__(df, label_duration, index_ticker, price_column,
+                         ticker_level_name, date_level_name)
+        if not (0 < quantile < 1):
+            raise ValueError("Quantile must be between 0 and 1 (exclusive).")
+        self.quantile = quantile
+        self.label_col_name = 'label'
+
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
-        excess_return_col = 'EXCESS_RETURN'
+        """
+        Assigns a binary label to each stock in the group for a given date.
+        Label is 1 if excess return >= quantile_threshold, 0 otherwise.
+        NaN excess returns result in NA labels.
+        """
+        excess_return_col = self.excess_return_col_name
+
         valid_returns = group[excess_return_col].dropna()
         if valid_returns.empty:
             return pd.Series(pd.NA, index=group.index, dtype='Int64')
+
         quantile_threshold = valid_returns.quantile(self.quantile)
+
         if pd.isna(quantile_threshold):
             return pd.Series(pd.NA, index=group.index, dtype='Int64')
-        label = (group[excess_return_col] >= quantile_threshold)
-        label = label.astype(float).where(group[excess_return_col].notna()).astype('Int64')
-        return label
+
+        labels = pd.Series(pd.NA, index=group.index, dtype='Int64')
+
+        condition = group[excess_return_col] >= quantile_threshold
+        labels = labels.mask(group[excess_return_col].notna(), condition.astype(float).astype('Int64'))
+
+        return labels
 
     def transform(self) -> pd.DataFrame:
-        df_copy = self.df.copy()
-        df_copy = df_copy.sort_index(level=[self.ticker_level_name, self.date_level_name])
+        """
+        First, calculates excess returns using the parent's transform method.
+        Then, assigns binary labels based on the quantile of these excess returns.
+        """
+        df_with_excess_returns = super().transform()
 
-        date_level_values = df_copy.index.get_level_values(self.date_level_name)
-        if not pd.api.types.is_datetime64_any_dtype(date_level_values.dtype):
-            try:
-                new_levels = [
-                    df_copy.index.get_level_values(self.ticker_level_name),
-                    pd.to_datetime(date_level_values)
-                ]
-                new_names = [self.ticker_level_name, self.date_level_name]
-                df_copy.index = pd.MultiIndex.from_arrays(new_levels, names=new_names)
-            except Exception as e:
-                raise ValueError(f"Could not convert the '{self.date_level_name}' index level to datetime. Please check the data. Error: {e}") from e
+        df_with_excess_returns[self.label_col_name] = df_with_excess_returns.groupby(
+            level=self.date_level_name, group_keys=False
+        ).apply(self._assign_label)
 
-        stock_return_col = f'{self.label_duration}d_stock_return'
-        df_copy[stock_return_col] = df_copy.groupby(level=self.ticker_level_name, group_keys=False, observed=False)[self.price_column].apply(self._calculate_returns)
-        index_returns_series = self._get_index_returns()
-        df_copy = df_copy.join(index_returns_series, on=self.date_level_name)
-        excess_return_col = 'EXCESS_RETURN'
-        df_copy[excess_return_col] = df_copy[stock_return_col] - df_copy['INDEX_RETURN']
-        df_copy[self.label_col_name] = df_copy.groupby(level=self.date_level_name, group_keys=False).apply(self._assign_label)
-
-        return df_copy
+        self.df = df_with_excess_returns
+        return self.df
 
