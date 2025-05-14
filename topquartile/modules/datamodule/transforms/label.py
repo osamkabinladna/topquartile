@@ -5,12 +5,13 @@ from abc import ABC, abstractmethod
 import warnings
 from pandas.tseries.offsets import BDay
 
-class LabelTransform:
+class LabelTransform(ABC):
     def __init__(self, df: pd.DataFrame):
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
-        self.df = df
+        self.df = df.copy()
 
+    @abstractmethod
     def transform(self) -> pd.DataFrame:
         raise NotImplementedError
 
