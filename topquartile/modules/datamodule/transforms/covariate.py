@@ -29,6 +29,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
                  ultimate: bool = False, #TBC KN
+                 awesome: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -50,6 +51,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param beta: List of window sizes for Beta calculation
         :param momentum_change: Calculate momentum change ROC6m - ROC6mp
         :param ultimate_oscillator: Calculate Ultimate Oscillator ((uses BP/TR over 7/14/28 days)) #TBC KN
+        :param awesome: Calculate Awesome Oscillator (uses 5/34 EMA) #TBC KN
         """
         super().__init__(df)
 
@@ -71,6 +73,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.beta = beta
         self.momentum_change = momentum_change
         self.ultimate = ultimate #TBC KN
+        self.awesome = awesome #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -100,6 +103,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_beta(group)
         group = self._add_momentum_change(group)
         group = self._add_ultimate(group) #TBC KN
+        group = self._add_awesome(group) #TBC KN
 
         return group
 
@@ -266,6 +270,18 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
 
+        return group_df
+    
+    def _add_awesome(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+        if 'High' not in group_df.columns or 'Low' not in group_df.columns:
+            warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
+            return group_df
+
+        median_price = (group_df['High'] + group_df['Low']) / 2
+        short_ma = median_price.rolling(window=5, min_periods=5).mean()
+        long_ma = median_price.rolling(window=34, min_periods=34).mean()
+
+        group_df['awesome_oscillator'] = short_ma - long_ma
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
