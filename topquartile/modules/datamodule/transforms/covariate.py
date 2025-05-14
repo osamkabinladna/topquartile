@@ -30,6 +30,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  momentum_change: bool = False,
                  ultimate: bool = False, #TBC KN
                  awesome: bool = False, #TBC KN
+                 max_return: Optional[List[int]] = None, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -52,6 +53,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param momentum_change: Calculate momentum change ROC6m - ROC6mp
         :param ultimate_oscillator: Calculate Ultimate Oscillator ((uses BP/TR over 7/14/28 days)) #TBC KN
         :param awesome: Calculate Awesome Oscillator (uses 5/34 EMA) #TBC KN
+        :param max_return: List of window sizes (in days) to compute the maximum return over that rolling period #TBC KN
         """
         super().__init__(df)
 
@@ -74,6 +76,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.momentum_change = momentum_change
         self.ultimate = ultimate #TBC KN
         self.awesome = awesome #TBC KN
+        self.max_return = max_return #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -104,6 +107,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_momentum_change(group)
         group = self._add_ultimate(group) #TBC KN
         group = self._add_awesome(group) #TBC KN
+        group = self._add_max_return(group) #TBC KN
 
         return group
 
@@ -282,6 +286,15 @@ class TechnicalCovariateTransform(CovariateTransform):
         long_ma = median_price.rolling(window=34, min_periods=34).mean()
 
         group_df['awesome_oscillator'] = short_ma - long_ma
+        return group_df
+    
+    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.max_return is not None:
+            for window in self.max_return:
+                max_ret = (
+                    group_df['PX_LAST'] / group_df['PX_LAST'].shift(1).rolling(window=window).min() - 1
+                ).replace([np.inf, -np.inf], np.nan)
+                group_df[f'max_return_{window}'] = max_ret
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
