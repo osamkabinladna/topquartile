@@ -33,7 +33,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                  max_return: Optional[List[int]] = None, #TBC KN
                  cmo: Optional[List[int]] = None, #TBC KN
                  trix: Optional[List[int]] = None, #TBC KN
-                 atr: bool = False,
+                 atr: bool = False, #TBC KN
+                 plus_di: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -60,6 +61,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param cmo: List of window sizes for Chande Momentum Oscillator (CMO) #TBC KN
         :param trix: List of window sizes for TRIX (Triple Exponential Average) indicator #TBC KN
         :param atr: Calculate Average True Range (ATR, default window = 14) #TBC KN
+        :param plus_di: Calculate Positive Directional Indicator (Plus_DI) using ATR and directional movement #TBC KN
         """
         super().__init__(df)
 
@@ -86,6 +88,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.trix = trix #TBC KN
         self.atr = atr #TBC KN
         self.cmo = cmo #TBC KN
+        self.plus_di = plus_di #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -377,6 +380,45 @@ class TechnicalCovariateTransform(CovariateTransform):
             atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
         group_df['atr'] = atr
         return group_df
+    def _add_plus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.plus_di:
+            return group_df
+
+        required_cols = ['High', 'Low', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+            warnings.warn("Skipping Plus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
+            return group_df
+
+        n = 21
+        high = group_df['High']
+        low = group_df['Low']
+        close = group_df['PX_LAST']
+
+        prev_high = high.shift(1)
+        prev_low = low.shift(1)
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs()
+        ], axis=1).max(axis=1)
+
+        atr = pd.Series(index=group_df.index, dtype='float64')
+        atr.iloc[n - 1] = tr.iloc[:n].mean()
+        for i in range(n, len(tr)):
+            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+        up_move = high - prev_high
+        down_move = prev_low - low
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+
+        dm_series = pd.Series(plus_dm, index=group_df.index)
+        dm_sum = dm_series.rolling(n).sum()
+        dm_mean = dm_series.rolling(n).mean()
+        dm_smoothed = dm_sum - dm_mean + dm_series
+
+        group_df['plus_di'] = (dm_smoothed / atr) * 100
+        return group_df
+    
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
