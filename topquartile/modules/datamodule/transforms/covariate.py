@@ -31,6 +31,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  ultimate: bool = False, #TBC KN
                  awesome: bool = False, #TBC KN
                  max_return: Optional[List[int]] = None, #TBC KN
+                 cmo: Optional[List[int]] = None, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -54,6 +55,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param ultimate_oscillator: Calculate Ultimate Oscillator ((uses BP/TR over 7/14/28 days)) #TBC KN
         :param awesome: Calculate Awesome Oscillator (uses 5/34 EMA) #TBC KN
         :param max_return: List of window sizes (in days) to compute the maximum return over that rolling period #TBC KN
+        :param cmo: List of window sizes for Chande Momentum Oscillator (CMO) #TBC KN
         """
         super().__init__(df)
 
@@ -108,6 +110,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_ultimate(group) #TBC KN
         group = self._add_awesome(group) #TBC KN
         group = self._add_max_return(group) #TBC KN
+        group = self._add_cmo(group) #TBC KN
 
         return group
 
@@ -295,6 +298,22 @@ class TechnicalCovariateTransform(CovariateTransform):
                     group_df['PX_LAST'] / group_df['PX_LAST'].shift(1).rolling(window=window).min() - 1
                 ).replace([np.inf, -np.inf], np.nan)
                 group_df[f'max_return_{window}'] = max_ret
+        return group_df
+    
+    def _add_cmo(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.cmo is not None:
+            close = group_df['PX_LAST']
+            delta = close.diff()
+
+            gains = delta.clip(lower=0)
+            losses = -delta.clip(upper=0)
+        for window in self.cmo:
+            sum_gains = gains.rolling(window).sum()
+            sum_losses = losses.rolling(window).sum()
+
+            cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
+            group_df[f'cmo_{window}'] = cmo
+
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
