@@ -275,14 +275,14 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df
     
     def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
-        required_cols = ['High', 'Low', 'PX_LAST']
+        required_cols = ['PX_LOW', 'PX_HIGH', 'PX_LAST']
         if not all(col in group_df.columns for col in required_cols):
                 warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
                 return group_df
 
         close = group_df['PX_LAST']
-        high = group_df['High']
-        low = group_df['Low']
+        high = group_df['PX_HIGH']
+        low = group_df['PX_LOW']
         prior_close = close.shift(1)
 
         bp = close - np.minimum(low, prior_close)
@@ -301,7 +301,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
             return group_df
 
-        median_price = (group_df['High'] + group_df['Low']) / 2
+        median_price = (group_df['HIGH'] + group_df['LOW']) / 2
         short_ma = median_price.rolling(window=5, min_periods=5).mean()
         long_ma = median_price.rolling(window=34, min_periods=34).mean()
 
