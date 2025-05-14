@@ -5,10 +5,8 @@ import re
 from collections import defaultdict
 import warnings
 
-from topquartile.modules.datamodule.transforms.covariate import (
-    CovariateTransform,
-    LabelTransform,
-)
+from topquartile.modules.datamodule.transforms.covariate import CovariateTransform
+from topquartile.modules.datamodule.transforms.label import LabelTransform
 from topquartile.modules.datamodule.partitions import (
     BasePurgedTimeSeriesPartition,
     PurgedTimeSeriesPartition,
@@ -95,10 +93,8 @@ class DataLoader:
 
     def transform_data(self):
         if self.data is None:
-            print("Loading data from file...")
             self._load_data()
 
-        print("Applying covariate transforms...")
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
                 raise ValueError(
@@ -109,7 +105,6 @@ class DataLoader:
             self.data = transformer.transform()
             self.required_covariates.update(transformer.required_base)
 
-        print("Applying label transforms...")
         for TransformClass, params in self.label_transform_config:
             if not issubclass(TransformClass, LabelTransform):
                 raise ValueError(
@@ -296,7 +291,6 @@ class DataLoader:
                  continue
 
             if isinstance(self.partitioner, PurgedGroupTimeSeriesPartition):
-                # Using normalized index (date part) as groups
                 groups = df_ticker.index.normalize()
                 print(f" Using date groups for ticker {ticker} with PurgedGroupTimeSeriesPartition.")
             else:
@@ -325,7 +319,6 @@ class DataLoader:
 
 
         cv_folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
-        print("Concatenating folds...")
         for fold_id, bucket in enumerate(fold_buckets):
             if bucket["train"] and bucket["test"]:
                 train_df = pd.concat(bucket["train"]).sort_index()
