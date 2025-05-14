@@ -28,6 +28,9 @@ class TechnicalCovariateTransform(CovariateTransform):
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
                  price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
+                 ultimate: bool = False, #TBC KN
+                 awesome: bool = False, #TBC KN
+                 max_return: Optional[List[int]] = None, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -48,6 +51,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param turnover: List of window sizes for Turnover calculation (Placeholder - Requires definition)
         :param beta: List of window sizes for Beta calculation
         :param momentum_change: Calculate momentum change ROC6m - ROC6mp
+        :param ultimate_oscillator: Calculate Ultimate Oscillator ((uses BP/TR over 7/14/28 days)) #TBC KN
+        :param awesome: Calculate Awesome Oscillator (uses 5/34 EMA) #TBC KN
+        :param max_return: List of window sizes (in days) to compute the maximum return over that rolling period #TBC KN
         """
         super().__init__(df)
 
@@ -68,6 +74,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.turnover = turnover
         self.beta = beta
         self.momentum_change = momentum_change
+        self.ultimate = ultimate #TBC KN
+        self.awesome = awesome #TBC KN
+        self.max_return = max_return #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -106,6 +115,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_sma(group)
         group = self._add_ema(group)
         group = self._add_momentum_change(group)
+        group = self._add_ultimate(group) #TBC KN
+        group = self._add_awesome(group) #TBC KN
+        group = self._add_max_return(group) #TBC KN
 
 
         if not group.empty:
@@ -260,6 +272,49 @@ class TechnicalCovariateTransform(CovariateTransform):
     def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.beta:
             raise NotImplementedError
+        return group_df
+    
+    def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+        required_cols = ['High', 'Low', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
+                return group_df
+
+        close = group_df['PX_LAST']
+        high = group_df['High']
+        low = group_df['Low']
+        prior_close = close.shift(1)
+
+        bp = close - np.minimum(low, prior_close)
+        tr = np.maximum(high, prior_close) - np.minimum(low, prior_close)
+
+        a1 = bp.rolling(7).sum() / tr.rolling(7).sum()
+        a2 = bp.rolling(14).sum() / tr.rolling(14).sum()
+        a3 = bp.rolling(28).sum() / tr.rolling(28).sum()
+
+        group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
+
+        return group_df
+    
+    def _add_awesome(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+        if 'High' not in group_df.columns or 'Low' not in group_df.columns:
+            warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
+            return group_df
+
+        median_price = (group_df['High'] + group_df['Low']) / 2
+        short_ma = median_price.rolling(window=5, min_periods=5).mean()
+        long_ma = median_price.rolling(window=34, min_periods=34).mean()
+
+        group_df['awesome_oscillator'] = short_ma - long_ma
+        return group_df
+    
+    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.max_return is not None:
+            for window in self.max_return:
+                max_ret = (
+                    group_df['PX_LAST'] / group_df['PX_LAST'].shift(1).rolling(window=window).min() - 1
+                ).replace([np.inf, -np.inf], np.nan)
+                group_df[f'max_return_{window}'] = max_ret
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
