@@ -28,6 +28,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
                  price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
+                 ultimate: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -48,6 +49,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param turnover: List of window sizes for Turnover calculation (Placeholder - Requires definition)
         :param beta: List of window sizes for Beta calculation
         :param momentum_change: Calculate momentum change ROC6m - ROC6mp
+        :param ultimate_oscillator: Calculate Ultimate Oscillator ((uses BP/TR over 7/14/28 days)) #TBC KN
         """
         super().__init__(df)
 
@@ -68,6 +70,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.turnover = turnover
         self.beta = beta
         self.momentum_change = momentum_change
+        self.ultimate = ultimate #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -96,6 +99,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_turnover(group)
         group = self._add_beta(group)
         group = self._add_momentum_change(group)
+        group = self._add_ultimate(group) #TBC KN
 
         return group
 
@@ -240,6 +244,28 @@ class TechnicalCovariateTransform(CovariateTransform):
     def _add_beta(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.beta:
             raise NotImplementedError
+        return group_df
+    
+    def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+        required_cols = ['High', 'Low', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
+                return group_df
+
+        close = group_df['PX_LAST']
+        high = group_df['High']
+        low = group_df['Low']
+        prior_close = close.shift(1)
+
+        bp = close - np.minimum(low, prior_close)
+        tr = np.maximum(high, prior_close) - np.minimum(low, prior_close)
+
+        a1 = bp.rolling(7).sum() / tr.rolling(7).sum()
+        a2 = bp.rolling(14).sum() / tr.rolling(14).sum()
+        a3 = bp.rolling(28).sum() / tr.rolling(28).sum()
+
+        group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
+
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
