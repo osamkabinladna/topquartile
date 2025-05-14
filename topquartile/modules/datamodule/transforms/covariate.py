@@ -32,6 +32,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  awesome: bool = False, #TBC KN
                  max_return: Optional[List[int]] = None, #TBC KN
                  cmo: Optional[List[int]] = None, #TBC KN
+                 trix: Optional[List[int]] = None, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -56,6 +57,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param awesome: Calculate Awesome Oscillator (uses 5/34 EMA) #TBC KN
         :param max_return: List of window sizes (in days) to compute the maximum return over that rolling period #TBC KN
         :param cmo: List of window sizes for Chande Momentum Oscillator (CMO) #TBC KN
+        :param trix: List of window sizes for TRIX (Triple Exponential Average) indicator #TBC KN
         """
         super().__init__(df)
 
@@ -79,6 +81,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.ultimate = ultimate #TBC KN
         self.awesome = awesome #TBC KN
         self.max_return = max_return #TBC KN
+        self.trix = trix #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -120,6 +123,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_awesome(group) #TBC KN
         group = self._add_max_return(group) #TBC KN
         group = self._add_cmo(group) #TBC KN
+        group = self._add_trix(group) #TBC KN
 
         return group
 
@@ -325,6 +329,16 @@ class TechnicalCovariateTransform(CovariateTransform):
             cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
             group_df[f'cmo_{window}'] = cmo
 
+        return group_df
+    
+    def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.trix is not None:
+            for window in self.trix:
+                ema1 = group_df['PX_LAST'].ewm(span=window, adjust=False, min_periods=window).mean()
+                ema2 = ema1.ewm(span=window, adjust=False, min_periods=window).mean()
+                ema3 = ema2.ewm(span=window, adjust=False, min_periods=window).mean()
+                trix = ema3.pct_change().replace([np.inf, -np.inf], np.nan) * 100
+                group_df[f'trix_{window}'] = trix
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
