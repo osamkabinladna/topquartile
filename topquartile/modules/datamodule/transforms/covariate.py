@@ -9,6 +9,7 @@ from tsfresh.feature_extraction.feature_calculators import approximate_entropy
 from tsfresh.feature_extraction.feature_calculators import ar_coefficient
 from statsmodels.tsa.ar_model import AutoReg
 from statsmodels.tsa.stattools import adfuller
+from scipy.stats import entropy
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -56,7 +57,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                  agg_autocorrelation: Optional[List[int]] = None,
                  approximate_entropy: bool = False,
                  ar_coefficient: Optional[int] = None,
-                 adf_statistic: bool = False,
+                 adfuller: bool = False,
+                 binned_entropy: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -101,6 +103,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param approximate_entropy: Calculate Approximate Entropy (ApEn) using default m=2, r=0.2
         :param ar_coefficient: Calculate AR(k) coefficients using maximum likelihood estimation. Provide lag k (e.g., 10)
         :param adfuller: Calculate Augmented Dickey-Fuller test statistic on 'PX_LAST' column.
+        :param binned_entropy: Calculate Binned Entropy (BE) on the 'PX_LAST' column.
         """
         super().__init__(df)
 
@@ -145,6 +148,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.approximate_entropy = approximate_entropy
         self.ar_coefficient = ar_coefficient
         self.adfuller = adfuller
+        self.binned_entropy = binned_entropy
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -834,6 +838,22 @@ class TechnicalCovariateTransform(CovariateTransform):
                 return np.nan
 
         group_df['adfuller'] = group_df['PX_LAST'].rolling(window=50).apply(safe_adf, raw=False)
+        return group_df
+    
+    def _add_binned_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.binned_entropy:
+            return group_df
+
+        def be(x, bins=10):
+            try:
+                counts, _ = np.histogram(x, bins=bins)
+                probs = counts / np.sum(counts)
+                probs = probs[probs > 0]
+                return -np.sum(probs * np.log(probs))
+            except Exception:
+                return np.nan
+
+        group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(be, raw=False)
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
