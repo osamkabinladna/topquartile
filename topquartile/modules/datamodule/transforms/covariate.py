@@ -59,6 +59,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  ar_coefficient: Optional[int] = None,
                  adfuller: bool = False,
                  binned_entropy: bool = False,
+                 cid_ce: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -104,6 +105,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param ar_coefficient: Calculate AR(k) coefficients using maximum likelihood estimation. Provide lag k (e.g., 10)
         :param adfuller: Calculate Augmented Dickey-Fuller test statistic on 'PX_LAST' column.
         :param binned_entropy: Calculate Binned Entropy (BE) on the 'PX_LAST' column.
+        :param cid_ce: Calculate time series complexity (CID) using the 'PX_LAST' column.
         """
         super().__init__(df)
 
@@ -149,6 +151,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.ar_coefficient = ar_coefficient
         self.adfuller = adfuller
         self.binned_entropy = binned_entropy
+        self.cid_ce = cid_ce
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -199,6 +202,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_agg_autocorrelation(group)
         group = self._add_approximate_entropy(group)
         group = self._add_ar_coefficient(group)
+        group = self._add_adfuller(group)
+        group = self._add_binned_entropy(group)
 
         
         return group
@@ -855,6 +860,19 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(be, raw=False)
         return group_df
+    
+    def _add_cid_ce(self, group_df: pd.DataFrame) -> pd.DataFrame:
+    
+        def cid(x):
+            x = pd.Series(x).dropna().to_numpy()
+            if len(x) < 2:
+                return np.nan
+            diffs = np.diff(x)
+            return np.sqrt(np.sum(diffs ** 2))
+
+        group_df['cid_ce'] = group_df['PX_LAST'].rolling(window=50).apply(cid, raw=False)
+        return group_df
+
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
