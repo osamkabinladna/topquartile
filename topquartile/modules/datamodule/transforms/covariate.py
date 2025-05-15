@@ -106,31 +106,23 @@ class TechnicalCovariateTransform(CovariateTransform):
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
 
-    # def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
-    #     group = group.sort_index()
-    #     group = self._add_sma(group)
-    #     group = self._add_ema(group)
-    #     group = self._add_rsi(group)
-    #     group = self._add_macd(group)
-    #     group = self._add_obv(group)
-    #     group = self._add_roc(group)
-    #     group = self._add_volatility(group)
-    #     group = self._add_volume_sma(group)
-    #     group = self._add_volume_std(group)
-    #     group = self._add_vroc(group)
-    #     group = self._add_price_gap(group)
-    #     group = self._add_price_vs_sma(group)
-    #     group = self._add_turnover(group)
-    #     group = self._add_beta(group)
-    #     group = self._add_momentum_change(group)
-    #
-    #     return group
-
     def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
-
+        group = group.sort_index()
         group = group.sort_index()
         group = self._add_sma(group)
         group = self._add_ema(group)
+        group = self._add_rsi(group)
+        group = self._add_macd(group)
+        group = self._add_obv(group)
+        group = self._add_roc(group)
+        group = self._add_volatility(group)
+        group = self._add_volume_sma(group)
+        group = self._add_volume_std(group)
+        group = self._add_vroc(group)
+        group = self._add_price_gap(group)
+        group = self._add_price_vs_sma(group)
+        group = self._add_turnover(group)
+        group = self._add_beta(group)
         group = self._add_momentum_change(group)
         group = self._add_ultimate(group) #TBC KN
         group = self._add_awesome(group) #TBC KN
@@ -338,161 +330,150 @@ class TechnicalCovariateTransform(CovariateTransform):
 
             gains = delta.clip(lower=0)
             losses = -delta.clip(upper=0)
-        for window in self.cmo:
-            sum_gains = gains.rolling(window).sum()
-            sum_losses = losses.rolling(window).sum()
+            for window in self.cmo:
+                sum_gains = gains.rolling(window).sum()
+                sum_losses = losses.rolling(window).sum()
 
-            cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
-            group_df[f'cmo_{window}'] = cmo
+                cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
+                group_df[f'cmo_{window}'] = cmo
 
         return group_df
     
     def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
-        if 'PX_LAST' not in group_df.columns:
-            warnings.warn("Skipping TRIX: 'PX_LAST' column not found.", UserWarning)
-            return group_df
+        if self.trix:
+            close = group_df['PX_LAST']
+            n = 21
 
-        close = group_df['PX_LAST']
-        n = 21
+            ema1 = close.ewm(span=n, adjust=False, min_periods=n).mean()
+            ema2 = ema1.ewm(span=n, adjust=False, min_periods=n).mean()
+            ema3 = ema2.ewm(span=n, adjust=False, min_periods=n).mean()
+            ema3_prev = ema3.shift(1)
 
-        ema1 = close.ewm(span=n, adjust=False, min_periods=n).mean()
-        ema2 = ema1.ewm(span=n, adjust=False, min_periods=n).mean()
-        ema3 = ema2.ewm(span=n, adjust=False, min_periods=n).mean()
-        ema3_prev = ema3.shift(1)
+            trix = ((ema3 - ema3_prev) / ema3_prev).replace([np.inf, -np.inf], np.nan)
+            group_df['trix'] = trix
 
-        trix = ((ema3 - ema3_prev) / ema3_prev).replace([np.inf, -np.inf], np.nan)
-
-        group_df['trix'] = trix
         return group_df
     
     def _add_atr(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
-        if not self.atr:
-            return group_df
-        if 'PX_HIGH' not in group_df.columns or 'Low' not in group_df.columns or 'PX_LAST' not in group_df.columns:
-            warnings.warn("Skipping ATR: required columns (High, Low, PX_LAST) not found.", UserWarning)
-            return group_df
-        
-        high = group_df['PX_HIGH']
-        low = group_df['PX_LOW']
-        close = group_df['PX_LAST']
-        prior_close = close.shift(1)
-        n = 14
-        tr = pd.concat([
-            (high - low),
-            (high - prior_close).abs(),
-            (low - prior_close).abs()
-        ], axis=1).max(axis=1)
-        atr = pd.Series(index=group_df.index, dtype='float64')
-        atr.iloc[n - 1] = tr.iloc[:n].mean()
-        for i in range(n, len(tr)):
-            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
-        group_df['atr'] = atr
+        if self.atr:
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            close = group_df['PX_LAST']
+            prior_close = close.shift(1)
+            n = 14
+            tr = pd.concat([
+                (high - low),
+                (high - prior_close).abs(),
+                (low - prior_close).abs()
+            ], axis=1).max(axis=1)
+            atr = pd.Series(index=group_df.index, dtype='float64')
+            atr.iloc[n - 1] = tr.iloc[:n].mean()
+            for i in range(n, len(tr)):
+                atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+            group_df['atr'] = atr
+
         return group_df
+
     def _add_plus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if not self.plus_di:
-            return group_df
+        if self.plus_di:
+            required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
+            if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Plus_DI: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
+                return group_df
 
-        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
-        if not all(col in group_df.columns for col in required_cols):
-            warnings.warn("Skipping Plus_DI: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
-            return group_df
+            n = 21
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            close = group_df['PX_LAST']
 
-        n = 21
-        high = group_df['PX_HIGH']
-        low = group_df['PX_LOW']
-        close = group_df['PX_LAST']
+            prev_high = high.shift(1)
+            prev_low = low.shift(1)
+            prev_close = close.shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs()
+            ], axis=1).max(axis=1)
 
-        prev_high = high.shift(1)
-        prev_low = low.shift(1)
-        prev_close = close.shift(1)
-        tr = pd.concat([
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs()
-        ], axis=1).max(axis=1)
+            atr = pd.Series(index=group_df.index, dtype='float64')
+            atr.iloc[n - 1] = tr.iloc[:n].mean()
+            for i in range(n, len(tr)):
+                atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+            up_move = high - prev_high
+            down_move = prev_low - low
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
 
-        atr = pd.Series(index=group_df.index, dtype='float64')
-        atr.iloc[n - 1] = tr.iloc[:n].mean()
-        for i in range(n, len(tr)):
-            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
-        up_move = high - prev_high
-        down_move = prev_low - low
-        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            dm_series = pd.Series(plus_dm, index=group_df.index)
+            dm_sum = dm_series.rolling(n).sum()
+            dm_mean = dm_series.rolling(n).mean()
+            dm_smoothed = dm_sum - dm_mean + dm_series
 
-        dm_series = pd.Series(plus_dm, index=group_df.index)
-        dm_sum = dm_series.rolling(n).sum()
-        dm_mean = dm_series.rolling(n).mean()
-        dm_smoothed = dm_sum - dm_mean + dm_series
+            group_df['plus_di'] = (dm_smoothed / atr) * 100
 
-        group_df['plus_di'] = (dm_smoothed / atr) * 100
         return group_df
     
     def _add_minus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if not self.minus_di:
-            return group_df
+        if self.minus_di:
+            required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
+            if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Minus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
+                return group_df
 
-        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
-        if not all(col in group_df.columns for col in required_cols):
-            warnings.warn("Skipping Minus_DI: required columns missing (High, Low, PX_LAST)", UserWarning)
-            return group_df
+            n = 21
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            close = group_df['PX_LAST']
 
-        n = 21
-        high = group_df['PX_HIGH']
-        low = group_df['PX_LOW']
-        close = group_df['PX_LAST']
+            prev_high = high.shift(1)
+            prev_low = low.shift(1)
+            prev_close = close.shift(1)
 
-        prev_high = high.shift(1)
-        prev_low = low.shift(1)
-        prev_close = close.shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs()
+            ], axis=1).max(axis=1)
 
-        tr = pd.concat([
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs()
-        ], axis=1).max(axis=1)
+            atr = pd.Series(index=group_df.index, dtype='float64')
+            atr.iloc[n - 1] = tr.iloc[:n].mean()
+            for i in range(n, len(tr)):
+                atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
 
-        atr = pd.Series(index=group_df.index, dtype='float64')
-        atr.iloc[n - 1] = tr.iloc[:n].mean()
-        for i in range(n, len(tr)):
-            atr.iloc[i] = ((atr.iloc[i - 1] * (n - 1)) + tr.iloc[i]) / n
+            down_move = prev_low - low
+            up_move = high - prev_high
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
 
-        down_move = prev_low - low
-        up_move = high - prev_high
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            dm_series = pd.Series(minus_dm, index=group_df.index)
 
-        dm_series = pd.Series(minus_dm, index=group_df.index)
+            dm_sum = dm_series.rolling(n).sum()
+            dm_mean = dm_series.rolling(n).mean()
+            dm_smoothed = dm_sum - dm_mean + dm_series
+            group_df['minus_di'] = (dm_smoothed / atr) * 100
 
-        dm_sum = dm_series.rolling(n).sum()
-        dm_mean = dm_series.rolling(n).mean()
-        dm_smoothed = dm_sum - dm_mean + dm_series
-
-        group_df['minus_di'] = (dm_smoothed / atr) * 100
         return group_df
     
     def _add_bb(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if not self.bb:
-            return group_df
+        if self.bb:
+            required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
+            if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Bollinger Bands: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
+                return group_df
 
-        required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
-        if not all(col in group_df.columns for col in required_cols):
-            warnings.warn("Skipping Bollinger Bands: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
-            return group_df
+            n = 20
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            close = group_df['PX_LAST']
 
-        n = 20
-        high = group_df['PX_HIGH']
-        low = group_df['PX_LOW']
-        close = group_df['PX_LAST']
+            tp = (high + low + close) / 3
+            tp_mean = tp.rolling(window=n).mean()
+            tp_std = tp.rolling(window=n).std()
 
-        tp = (high + low + close) / 3
-        tp_mean = tp.rolling(window=n).mean()
-        tp_std = tp.rolling(window=n).std()
+            upper_band = tp_mean + 2 * tp_std
+            lower_band = tp_mean - 2 * tp_std
 
-        upper_band = tp_mean + 2 * tp_std
-        lower_band = tp_mean - 2 * tp_std
-
-        group_df['bb_upper'] = upper_band
-        group_df['bb_lower'] = lower_band
-        group_df['bb_position'] = (close - lower_band) / (upper_band - lower_band).replace(0, np.nan)
+            group_df['bb_upper'] = upper_band
+            group_df['bb_lower'] = lower_band
+            group_df['bb_position'] = (close - lower_band) / (upper_band - lower_band).replace(0, np.nan)
 
         return group_df
 
