@@ -108,7 +108,6 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
         group = group.sort_index()
-        group = group.sort_index()
         group = self._add_sma(group)
         group = self._add_ema(group)
         group = self._add_rsi(group)
