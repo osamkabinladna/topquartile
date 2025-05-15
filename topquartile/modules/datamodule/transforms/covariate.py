@@ -41,6 +41,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  mean_price_volatility: Optional[List[int]] = None,
                  force_index: bool = False,
                  mfi: bool = False,
+                 mass_index: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -72,6 +73,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param bb: Calculate Bollinger Bands (UB, LB, BB position) using typical price over n=20 days #TBC KN
         :param ulcer: Calculate Ulcer Index (measures downside volatility) #TBC KN
         :param force_index: Calculate Force Index (Price change × Volume)
+        :param mean_price_volatility: Calculate Mean Price Volatility (EMA of TP standard deviation over 21d and 252d)
+        :param mfi: Calculate Money Flow Index (uses typical price, volume, and positive/negative money flow)
+        :param mass_index: Calculate Mass Index (uses ratio of 9-period EMA of high-low difference and its EMA)
         """
         super().__init__(df)
 
@@ -105,6 +109,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.mean_price_volatility = mean_price_volatility
         self.force_index = force_index
         self.mfi = mfi
+        self.mass_index = mass_index
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -145,6 +150,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_mean_price_volatility(group)  # TBC KN
         group = self._add_mfi(group)
         group = self._add_force_index(group)
+        group = self._add_mass_index(group)
         
         return group
 
@@ -551,6 +557,24 @@ class TechnicalCovariateTransform(CovariateTransform):
             mfr = pos_flow_sum / neg_flow_sum.replace(0, np.nan)
             group_df['mfi_21'] = 100 - (100 / (1 + mfr))
             group_df['mfi_21'] = group_df['mfi_21'].replace([np.inf, -np.inf], np.nan)
+
+        return group_df
+    
+    def _add_mass_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.mass_index:
+            if 'PX_HIGH' not in group_df.columns or 'PX_LOW' not in group_df.columns:
+                warnings.warn("Skipping Mass Index: 'PX_HIGH' or 'PX_LOW' column not found.", UserWarning)
+                return group_df
+
+            high = group_df['PX_HIGH']
+            low = group_df['PX_LOW']
+            diff = high - low
+
+            ema1 = diff.ewm(span=9, adjust=False, min_periods=9).mean()
+            ema2 = ema1.ewm(span=9, adjust=False, min_periods=9).mean()
+
+            mass = ema1 / ema2
+            group_df['mass_index'] = mass.rolling(window=25, min_periods=25).sum()
 
         return group_df
 
