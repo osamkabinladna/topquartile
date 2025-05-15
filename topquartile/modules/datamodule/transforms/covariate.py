@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import warnings
 import yfinance as yf
 from tsfresh.feature_extraction.feature_calculators import autocorrelation
+from tsfresh.feature_extraction.feature_calculators import approximate_entropy
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -50,6 +51,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  corwin_schultz: bool = False,
                  autocorrelation: Optional[List[int]] = None,
                  agg_autocorrelation: Optional[List[int]] = None,
+                 approximate_entropy: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -89,6 +91,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param amih_l: Calculate Amihoud Illiquidity (abs(returns) / dollar volume, smoothed with EMA)
         :param kyle_l: Calculate Kyle’s Lambda (rolling regression of return on signed dollar volume)
         :param corwin_schultz: Calculate Corwin-Schultz Bid-Ask Spread Estimator. Requires 'High' and 'Low'
+        :param autocorrelation: List of lags for calculating simple autocorrelation (e.g., [1, 5, 10])
+        :param agg_autocorrelation: List of lags for calculating aggregate autocorrelations using aggregation functions (mean, std, median)
+        :param approximate_entropy: Calculate Approximate Entropy (ApEn) using default m=2, r=0.2
         """
         super().__init__(df)
 
@@ -130,6 +135,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.corwin_schultz = corwin_schultz
         self.autocorrelation = autocorrelation
         self.agg_autocorrelation = agg_autocorrelation
+        self.approximate_entropy = approximate_entropy
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -178,6 +184,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_corwin_schultz(group) 
         group = self._add_autocorrelation(group)
         group = self._add_agg_autocorrelation(group)
+        group = self._add_approximate_entropy(group)
 
         
         return group
@@ -768,6 +775,16 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df[f'agg_autocorr_{agg_func}'] = group_df['PX_LAST'].rolling(
                 window=max(lags) + 1
             ).apply(safe_agg, raw=False)
+
+        return group_df
+    
+    def _add_approximate_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.approximate_entropy:
+            return group_df
+    
+        group_df['approx_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: approximate_entropy(x, 2, 0.2), raw=False
+        )
 
         return group_df
 
