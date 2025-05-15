@@ -45,6 +45,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  cci: Optional[List[int]] = None,
                  stc: bool = False,
                  amih_l: bool = False,
+                 kyle_l: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -82,6 +83,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param cci: List of window sizes for Commodity Channel Index (CCI), requires High, Low, Close
         :param stc: Calculate Schaff Trend Cycle (STC) using double EMA smoothing and cycle logic
         :param amih_l: Calculate Amihoud Illiquidity (abs(returns) / dollar volume, smoothed with EMA)
+        :param kyle_l: Calculate Kyle’s Lambda (rolling regression of return on signed dollar volume)
         """
         super().__init__(df)
 
@@ -119,6 +121,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.cci = cci
         self.stc = stc
         self.amih_l = amih_l
+        self.kyle_l = kyle_l
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -163,6 +166,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_cci(group)
         group = self._add_stc(group)
         group = self._add_amih_l(group) 
+        group = self._add_kyle_l(group)
         
         return group
 
@@ -650,6 +654,41 @@ class TechnicalCovariateTransform(CovariateTransform):
             ema2 = returns.ewm(span=21, adjust=False, min_periods=21).mean()
 
             group_df['amih_l'] = (np.abs(ema2) / ema1) * 1_000_000
+
+        return group_df
+    
+    def _rolling_beta(self, y: pd.Series, x: pd.Series, window: int) -> pd.Series: #TBC, rolling beta added without previous definition
+        betas = []
+        for i in range(len(y)):
+            if i < window - 1:
+                betas.append(np.nan)
+            else:
+                yi = y[i - window + 1:i + 1]
+                xi = x[i - window + 1:i + 1]
+                if xi.std() == 0 or yi.std() == 0:
+                    betas.append(np.nan)
+                else:
+                    beta = np.cov(yi, xi)[0, 1] / np.var(xi)
+                    betas.append(beta)
+        return pd.Series(betas, index=y.index)
+    
+    def _add_kyle_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.kyle_l:
+            required_cols = ['PX_LAST', 'VOLUME']
+            if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                return group_df
+
+            close = group_df['PX_LAST']
+            volume = group_df['VOLUME']
+            prior_close = close.shift(1)
+            returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
+
+            sign_r = returns.apply(lambda r: 1 if r > 0 else (-1 if r < 0 else 0))
+            dollar_vol = close * volume
+            vd = sign_r * np.log(dollar_vol.replace(0, np.nan))
+
+            group_df['kyle_l'] = self._rolling_beta(returns, vd, window=21)
 
         return group_df
 
