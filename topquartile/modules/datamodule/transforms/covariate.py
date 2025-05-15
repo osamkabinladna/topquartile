@@ -42,6 +42,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  force_index: bool = False,
                  mfi: bool = False,
                  mass_index: bool = False,
+                 cci: Optional[List[int]] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -76,6 +77,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param mean_price_volatility: Calculate Mean Price Volatility (EMA of TP standard deviation over 21d and 252d)
         :param mfi: Calculate Money Flow Index (uses typical price, volume, and positive/negative money flow)
         :param mass_index: Calculate Mass Index (uses ratio of 9-period EMA of high-low difference and its EMA)
+        :param cci: List of window sizes for Commodity Channel Index (CCI), requires High, Low, Close
         """
         super().__init__(df)
 
@@ -110,6 +112,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.force_index = force_index
         self.mfi = mfi
         self.mass_index = mass_index
+        self.cci = cci
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -151,6 +154,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_mfi(group)
         group = self._add_force_index(group)
         group = self._add_mass_index(group)
+        group = self._add_cci(group)
         
         return group
 
@@ -575,6 +579,22 @@ class TechnicalCovariateTransform(CovariateTransform):
 
             mass = ema1 / ema2
             group_df['mass_index'] = mass.rolling(window=25, min_periods=25).sum()
+
+        return group_df
+        
+    def _add_cci(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.cci is not None:
+            if not all(col in group_df.columns for col in ['PX_LAST', 'PX_HIGH', 'PX_LOW']):
+                warnings.warn("Skipping CCI: required columns missing (High, Low, PX_LAST)", UserWarning)
+                return group_df
+
+            typical_price = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
+
+            for window in self.cci:
+                ma = typical_price.rolling(window=window, min_periods=window).mean()
+                md = (typical_price - ma).abs().rolling(window=window, min_periods=window).mean()
+                cci = (typical_price - ma) / (0.015 * md)
+                group_df[f'cci_{window}'] = cci.replace([np.inf, -np.inf], np.nan)
 
         return group_df
 
