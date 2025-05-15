@@ -43,6 +43,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  mfi: bool = False,
                  mass_index: bool = False,
                  cci: Optional[List[int]] = None,
+                 stc: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -78,6 +79,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param mfi: Calculate Money Flow Index (uses typical price, volume, and positive/negative money flow)
         :param mass_index: Calculate Mass Index (uses ratio of 9-period EMA of high-low difference and its EMA)
         :param cci: List of window sizes for Commodity Channel Index (CCI), requires High, Low, Close
+        :param stc: Calculate Schaff Trend Cycle (STC) using double EMA smoothing and cycle logic
         """
         super().__init__(df)
 
@@ -113,6 +115,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.mfi = mfi
         self.mass_index = mass_index
         self.cci = cci
+        self.stc = stc
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -155,6 +158,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_force_index(group)
         group = self._add_mass_index(group)
         group = self._add_cci(group)
+        group = self._add_stc(group)
         
         return group
 
@@ -595,6 +599,33 @@ class TechnicalCovariateTransform(CovariateTransform):
                 md = (typical_price - ma).abs().rolling(window=window, min_periods=window).mean()
                 cci = (typical_price - ma) / (0.015 * md)
                 group_df[f'cci_{window}'] = cci.replace([np.inf, -np.inf], np.nan)
+
+        return group_df
+    
+    def _add_stc(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.stc:
+            c = group_df['PX_LAST']
+            n1, n2, n3, n4 = 23, 50, 3, 10
+
+            ema1 = c.ewm(span=n1, adjust=False).mean()
+            ema2 = ema1.ewm(span=n2, adjust=False).mean()
+            ema_diff = ema1 - ema2
+
+            ema_diff_min = ema_diff.rolling(window=n4).min()
+            ema_diff_max = ema_diff.rolling(window=n4).max()
+
+            s = 100 * (ema_diff - ema_diff_min) / (ema_diff_max - ema_diff_min)
+            s = s.replace([np.inf, -np.inf], np.nan)
+
+            ema_s = s.ewm(span=n3, adjust=False).mean()
+            ema_s_min = ema_s.rolling(window=n4).min()
+            ema_s_max = ema_s.rolling(window=n4).max()
+
+            d = 100 * (ema_s - ema_s_min) / (ema_s_max - ema_s_min)
+            d = d.replace([np.inf, -np.inf], np.nan)
+
+            stc = d.ewm(span=n3, adjust=False).mean()
+            group_df['stc'] = stc
 
         return group_df
 
