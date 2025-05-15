@@ -60,6 +60,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  adfuller: bool = False,
                  binned_entropy: bool = False,
                  cid_ce: bool = False,
+                 count_above_mean: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -106,6 +107,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param adfuller: Calculate Augmented Dickey-Fuller test statistic on 'PX_LAST' column.
         :param binned_entropy: Calculate Binned Entropy (BE) on the 'PX_LAST' column.
         :param cid_ce: Calculate time series complexity (CID) using the 'PX_LAST' column.
+        :param count_above_mean: Calculate number of values above the mean (Count_above_mean)
         """
         super().__init__(df)
 
@@ -152,6 +154,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.adfuller = adfuller
         self.binned_entropy = binned_entropy
         self.cid_ce = cid_ce
+        self.count_above_mean = count_above_mean
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -204,6 +207,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_ar_coefficient(group)
         group = self._add_adfuller(group)
         group = self._add_binned_entropy(group)
+        group = self._add_cid_ce(group)
+        group = self._add_count_above_mean(group)
 
         
         return group
@@ -871,6 +876,17 @@ class TechnicalCovariateTransform(CovariateTransform):
             return np.sqrt(np.sum(diffs ** 2))
 
         group_df['cid_ce'] = group_df['PX_LAST'].rolling(window=50).apply(cid, raw=False)
+        return group_df
+    
+    def _add_count_above_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
+
+        def count_above_mean(x):
+            x = pd.Series(x).dropna()
+            if len(x) == 0:
+                return np.nan
+            return np.sum(x > x.mean())
+
+        group_df['count_above_mean'] = group_df['PX_LAST'].rolling(window=50).apply(count_above_mean, raw=False)
         return group_df
 
 
