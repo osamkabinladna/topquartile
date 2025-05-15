@@ -6,6 +6,8 @@ import warnings
 import yfinance as yf
 from tsfresh.feature_extraction.feature_calculators import autocorrelation
 from tsfresh.feature_extraction.feature_calculators import approximate_entropy
+from tsfresh.feature_extraction.feature_calculators import ar_coefficient
+from statsmodels.tsa.ar_model import AutoReg
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -52,6 +54,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  autocorrelation: Optional[List[int]] = None,
                  agg_autocorrelation: Optional[List[int]] = None,
                  approximate_entropy: bool = False,
+                 ar_coefficient: Optional[int] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -94,6 +97,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param autocorrelation: List of lags for calculating simple autocorrelation (e.g., [1, 5, 10])
         :param agg_autocorrelation: List of lags for calculating aggregate autocorrelations using aggregation functions (mean, std, median)
         :param approximate_entropy: Calculate Approximate Entropy (ApEn) using default m=2, r=0.2
+        :param ar_coefficient: Calculate AR(k) coefficients using maximum likelihood estimation. Provide lag k (e.g., 10)
         """
         super().__init__(df)
 
@@ -136,6 +140,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.autocorrelation = autocorrelation
         self.agg_autocorrelation = agg_autocorrelation
         self.approximate_entropy = approximate_entropy
+        self.ar_coefficient = ar_coefficient
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -185,6 +190,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_autocorrelation(group)
         group = self._add_agg_autocorrelation(group)
         group = self._add_approximate_entropy(group)
+        group = self._add_ar_coefficient(group)
 
         
         return group
@@ -785,6 +791,30 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['approx_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: approximate_entropy(x, 2, 0.2), raw=False
         )
+
+        return group_df
+    
+    def _add_ar_coefficient(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.ar_coefficient is None:
+            return group_df
+
+        k = self.ar_coefficient
+
+        def extract_phi(x):
+            try:
+                model = AutoReg(x, lags=k, old_names=False).fit()
+                return [model.params.get(f'L{i}.PX_LAST', np.nan) for i in range(1, k + 1)]
+            except Exception:
+                return [np.nan] * k
+
+        phi_cols = [f'ar_coeff_phi_{i}' for i in range(k)]
+
+        ar_matrix = group_df['PX_LAST'].rolling(window=k + 1).apply(
+            lambda x: pd.Series(extract_phi(x)), raw=False
+        )
+
+        for i, col in enumerate(phi_cols):
+            group_df[col] = ar_matrix.apply(lambda row: row[i] if isinstance(row, list) else np.nan)
 
         return group_df
 
