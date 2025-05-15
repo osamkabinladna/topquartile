@@ -38,6 +38,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  minus_di: bool = False, #TBC KN
                  bb: bool = False, #TBC KN
                  ulcer: bool = False, #TBC KN
+                 mean_price_volatility: Optional[List[int]] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -98,6 +99,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.minus_di = minus_di #TBC KN
         self.bb = bb #TBC KN
         self.ulcer = ulcer #TBC KN
+        self.mean_price_volatility = mean_price_volatility
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -135,6 +137,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_minus_di(group) #TBC KN
         group = self._add_bb(group) #TBC KN
         group = self._add_ulcer(group) #TBC KN
+        group = self._add_mean_price_volatility(group)  # TBC KN
         
         return group
 
@@ -492,6 +495,21 @@ class TechnicalCovariateTransform(CovariateTransform):
         ulcer_index = pd_squared.rolling(window=n, min_periods=n).mean().pow(0.5)
 
         group_df['ulcer_index'] = ulcer_index
+        return group_df
+    
+    def _add_mean_price_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.mean_price_volatility is not None:
+            if not all(col in group_df.columns for col in ['PX_LAST', 'PX_HIGH', 'PX_LOW']):
+                warnings.warn("Skipping Mean Price Volatility: Missing required columns (PX_LAST, PX_HIGH, PX_LOW)", UserWarning)
+                return group_df
+
+            tp = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
+
+            for window in self.mean_price_volatility:
+                std = tp.rolling(window=window, min_periods=window).std()
+                ema_std = std.ewm(span=window, adjust=False, min_periods=window).mean()
+                group_df[f'mean_std_{window}'] = ema_std
+
         return group_df
 
 
