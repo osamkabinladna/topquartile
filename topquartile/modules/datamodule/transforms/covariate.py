@@ -46,6 +46,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  stc: bool = False,
                  amih_l: bool = False,
                  kyle_l: bool = False,
+                 corwin_schultz: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -84,6 +85,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param stc: Calculate Schaff Trend Cycle (STC) using double EMA smoothing and cycle logic
         :param amih_l: Calculate Amihoud Illiquidity (abs(returns) / dollar volume, smoothed with EMA)
         :param kyle_l: Calculate Kyle’s Lambda (rolling regression of return on signed dollar volume)
+        :param corwin_schultz: Calculate Corwin-Schultz Bid-Ask Spread Estimator. Requires 'High' and 'Low'
         """
         super().__init__(df)
 
@@ -122,6 +124,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.stc = stc
         self.amih_l = amih_l
         self.kyle_l = kyle_l
+        self.corwin_schultz = corwin_schultz
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -167,6 +170,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_stc(group)
         group = self._add_amih_l(group) 
         group = self._add_kyle_l(group)
+        group = self._add_corwin_schultz(group)  
         
         return group
 
@@ -689,6 +693,39 @@ class TechnicalCovariateTransform(CovariateTransform):
             vd = sign_r * np.log(dollar_vol.replace(0, np.nan))
 
             group_df['kyle_l'] = self._rolling_beta(returns, vd, window=21)
+
+        return group_df
+    
+    def _add_corwin_schultz(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.corwin_schultz:
+            return group_df
+
+        required_cols = ['PX_HIGH', 'PX_LOW']
+        if not all(col in group_df.columns for col in required_cols):
+            warnings.warn("Skipping Corwin-Schultz: required columns missing (PX_HIGH, PX_LOW)", UserWarning)
+            return group_df
+
+        n1 = 5
+        n2 = 21
+        high: pd.Series = group_df['PX_HIGH']
+        low: pd.Series = group_df['PX_LOW']
+
+        hl_sq = np.log(high / low) ** 2
+
+        h_max = high.rolling(window=n1).max()
+        l_min = low.rolling(window=n1).min()
+        hl_sq = pd.Series(np.log(high / low) ** 2, index=group_df.index)
+        hl_sq_sum = hl_sq.rolling(window=n1).sum()
+        b = hl_sq_sum.rolling(window=n2).mean()
+
+        g = np.log(h_max / l_min) ** 2
+        c = (np.sqrt(2) - 1) / (3 - 2 * np.sqrt(2))
+
+        A_tilde = ((np.sqrt(2) - 1) * b - (g / 2)) / c
+        A = A_tilde.where(A_tilde >= 0, 0)
+
+        cs = 2 * (np.exp(A) - 1) / (1 + np.exp(A))
+        group_df['corwin_schultz'] = cs
 
         return group_df
 
