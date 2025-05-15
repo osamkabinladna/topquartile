@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
 import warnings
 import yfinance as yf
+from tsfresh.feature_extraction.feature_calculators import autocorrelation
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -47,6 +48,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                  amih_l: bool = False,
                  kyle_l: bool = False,
                  corwin_schultz: bool = False,
+                 autocorrelation: Optional[List[int]] = None,
+                 agg_autocorrelation: Optional[List[int]] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -125,6 +128,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.amih_l = amih_l
         self.kyle_l = kyle_l
         self.corwin_schultz = corwin_schultz
+        self.autocorrelation = autocorrelation
+        self.agg_autocorrelation = agg_autocorrelation
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -170,7 +175,10 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_stc(group)
         group = self._add_amih_l(group) 
         group = self._add_kyle_l(group)
-        group = self._add_corwin_schultz(group)  
+        group = self._add_corwin_schultz(group) 
+        group = self._add_autocorrelation(group)
+        group = self._add_agg_autocorrelation(group)
+
         
         return group
 
@@ -726,6 +734,40 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         cs = 2 * (np.exp(A) - 1) / (1 + np.exp(A))
         group_df['corwin_schultz'] = cs
+
+        return group_df
+
+    def _add_autocorrelation(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.autocorrelation is None:
+            return group_df
+
+        for lag in self.autocorrelation:
+            group_df[f'autocorr_lag_{lag}'] = group_df['PX_LAST'].rolling(window=lag + 1).apply(
+                lambda x: autocorrelation(x, lag), raw=False
+            )
+
+        return group_df
+
+    def _add_agg_autocorrelation(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.agg_autocorrelation is None:
+            return group_df
+
+        lags = self.agg_autocorrelation
+
+        for agg_func in ['mean', 'std', 'median']:
+            def safe_agg(x, lags=lags):
+                try:
+                    vals = [autocorrelation(x, lag) for lag in lags]
+                    vals = [v for v in vals if isinstance(v, (int, float)) and not np.isnan(v)]
+                    if not vals:
+                        return np.nan
+                    return getattr(np, agg_func)(vals)
+                except:
+                    return np.nan
+
+            group_df[f'agg_autocorr_{agg_func}'] = group_df['PX_LAST'].rolling(
+                window=max(lags) + 1
+            ).apply(safe_agg, raw=False)
 
         return group_df
 
