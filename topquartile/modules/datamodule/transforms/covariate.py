@@ -44,6 +44,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  mass_index: bool = False,
                  cci: Optional[List[int]] = None,
                  stc: bool = False,
+                 amih_l: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -80,6 +81,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param mass_index: Calculate Mass Index (uses ratio of 9-period EMA of high-low difference and its EMA)
         :param cci: List of window sizes for Commodity Channel Index (CCI), requires High, Low, Close
         :param stc: Calculate Schaff Trend Cycle (STC) using double EMA smoothing and cycle logic
+        :param amih_l: Calculate Amihoud Illiquidity (abs(returns) / dollar volume, smoothed with EMA)
         """
         super().__init__(df)
 
@@ -116,6 +118,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.mass_index = mass_index
         self.cci = cci
         self.stc = stc
+        self.amih_l = amih_l
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -159,6 +162,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_mass_index(group)
         group = self._add_cci(group)
         group = self._add_stc(group)
+        group = self._add_amih_l(group) 
         
         return group
 
@@ -626,6 +630,26 @@ class TechnicalCovariateTransform(CovariateTransform):
 
             stc = d.ewm(span=n3, adjust=False).mean()
             group_df['stc'] = stc
+
+        return group_df
+    
+    def _add_amih_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.amih_l:
+            required_cols = ['PX_LAST', 'VOLUME']
+            if not all(col in group_df.columns for col in required_cols):
+                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                return group_df
+
+            close = group_df['PX_LAST']
+            prior_close = close.shift(1)
+            returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
+
+            dollar_volume = close * group_df['VOLUME']
+
+            ema1 = dollar_volume.ewm(span=21, adjust=False, min_periods=21).mean()
+            ema2 = returns.ewm(span=21, adjust=False, min_periods=21).mean()
+
+            group_df['amih_l'] = (np.abs(ema2) / ema1) * 1_000_000
 
         return group_df
 
