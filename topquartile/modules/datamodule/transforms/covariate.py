@@ -40,6 +40,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  ulcer: bool = False, #TBC KN
                  mean_price_volatility: Optional[List[int]] = None,
                  force_index: bool = False,
+                 mfi: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -103,6 +104,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.ulcer = ulcer #TBC KN
         self.mean_price_volatility = mean_price_volatility
         self.force_index = force_index
+        self.mfi = mfi
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -141,6 +143,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_bb(group) #TBC KN
         group = self._add_ulcer(group) #TBC KN
         group = self._add_mean_price_volatility(group)  # TBC KN
+        group = self._add_mfi(group)
         group = self._add_force_index(group)
         
         return group
@@ -527,6 +530,28 @@ class TechnicalCovariateTransform(CovariateTransform):
             volume = group_df['VOLUME']
 
             group_df['force_index'] = (close - prior_close) * volume
+        return group_df
+    
+    def _add_mfi(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.mfi:
+            if not all(col in group_df.columns for col in ['High', 'Low', 'PX_LAST', 'VOLUME']):
+                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, VOLUME)", UserWarning)
+                return group_df
+
+            typical_price = (group_df['High'] + group_df['Low'] + group_df['PX_LAST']) / 3
+            raw_money_flow = typical_price * group_df['VOLUME']
+            tp_diff = tp_diff = pd.to_numeric(typical_price.diff(), errors="coerce")
+
+            positive_flow = raw_money_flow.where(tp_diff > 0, 0)
+            negative_flow = raw_money_flow.where(tp_diff < 0, 0)
+
+            pos_flow_sum = positive_flow.rolling(window=21).sum()
+            neg_flow_sum = negative_flow.rolling(window=21).sum()
+
+            mfr = pos_flow_sum / neg_flow_sum.replace(0, np.nan)
+            group_df['mfi_21'] = 100 - (100 / (1 + mfr))
+            group_df['mfi_21'] = group_df['mfi_21'].replace([np.inf, -np.inf], np.nan)
+
         return group_df
 
 
