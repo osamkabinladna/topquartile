@@ -61,6 +61,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  binned_entropy: bool = False,
                  cid_ce: bool = False,
                  count_above_mean: bool = False,
+                 count_below_mean: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -108,6 +109,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param binned_entropy: Calculate Binned Entropy (BE) on the 'PX_LAST' column.
         :param cid_ce: Calculate time series complexity (CID) using the 'PX_LAST' column.
         :param count_above_mean: Calculate number of values above the mean (Count_above_mean)
+        :param count_below_mean: Calculate number of values below the mean (Count_below_mean)
         """
         super().__init__(df)
 
@@ -155,6 +157,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.binned_entropy = binned_entropy
         self.cid_ce = cid_ce
         self.count_above_mean = count_above_mean
+        self.count_below_mean = count_below_mean
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -209,6 +212,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_binned_entropy(group)
         group = self._add_cid_ce(group)
         group = self._add_count_above_mean(group)
+        group = self._add_count_below_mean(group)
 
         
         return group
@@ -888,7 +892,17 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['count_above_mean'] = group_df['PX_LAST'].rolling(window=50).apply(count_above_mean, raw=False)
         return group_df
+    
+    def _add_count_below_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
+    
+        def count_below_mean(x):
+            x = pd.Series(x).dropna()
+            if len(x) == 0:
+                return np.nan
+            return np.sum(x < x.mean())
 
+        group_df['count_below_mean'] = group_df['PX_LAST'].rolling(window=50).apply(count_below_mean, raw=False)
+        return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
