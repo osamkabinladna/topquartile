@@ -39,6 +39,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  bb: bool = False, #TBC KN
                  ulcer: bool = False, #TBC KN
                  mean_price_volatility: Optional[List[int]] = None,
+                 force_index: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -69,6 +70,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param minus_di: Calculate Negative Directional Indicator (Minus_DI) using ATR and directional movement #TBC KN
         :param bb: Calculate Bollinger Bands (UB, LB, BB position) using typical price over n=20 days #TBC KN
         :param ulcer: Calculate Ulcer Index (measures downside volatility) #TBC KN
+        :param force_index: Calculate Force Index (Price change × Volume)
         """
         super().__init__(df)
 
@@ -100,6 +102,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.bb = bb #TBC KN
         self.ulcer = ulcer #TBC KN
         self.mean_price_volatility = mean_price_volatility
+        self.force_index = force_index
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -138,6 +141,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_bb(group) #TBC KN
         group = self._add_ulcer(group) #TBC KN
         group = self._add_mean_price_volatility(group)  # TBC KN
+        group = self._add_force_index(group)
         
         return group
 
@@ -510,6 +514,19 @@ class TechnicalCovariateTransform(CovariateTransform):
                 ema_std = std.ewm(span=window, adjust=False, min_periods=window).mean()
                 group_df[f'mean_std_{window}'] = ema_std
 
+        return group_df
+    
+    def _add_force_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.force_index:
+            if 'VOLUME' not in group_df.columns:
+                warnings.warn("Skipping Force Index: 'VOLUME' column not found.", UserWarning)
+                return group_df
+
+            close = group_df['PX_LAST']
+            prior_close = close.shift(1)
+            volume = group_df['VOLUME']
+
+            group_df['force_index'] = (close - prior_close) * volume
         return group_df
 
 
