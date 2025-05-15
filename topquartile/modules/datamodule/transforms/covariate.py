@@ -37,6 +37,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  plus_di: bool = False, #TBC KN
                  minus_di: bool = False, #TBC KN
                  bb: bool = False, #TBC KN
+                 ulcer: bool = False, #TBC KN
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -66,6 +67,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param plus_di: Calculate Positive Directional Indicator (Plus_DI) using ATR and directional movement #TBC KN
         :param minus_di: Calculate Negative Directional Indicator (Minus_DI) using ATR and directional movement #TBC KN
         :param bb: Calculate Bollinger Bands (UB, LB, BB position) using typical price over n=20 days #TBC KN
+        :param ulcer: Calculate Ulcer Index (measures downside volatility) #TBC KN
         """
         super().__init__(df)
 
@@ -95,6 +97,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.plus_di = plus_di #TBC KN
         self.minus_di = minus_di #TBC KN
         self.bb = bb #TBC KN
+        self.ulcer = ulcer #TBC KN
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -140,6 +143,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_atr(group) #TBC KN
         group = self._add_minus_di(group) #TBC KN
         group = self._add_bb(group) #TBC KN
+        group = self._add_ulcer(group) #TBC KN
         
         return group
 
@@ -201,7 +205,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 return group_df
             price_diff = group_df['PX_LAST'].diff()
             volume = group_df['VOLUME']
-            signed_volume = (np.sign(price_diff) * volume).fillna(0)
+            signed_volume = pd.Series(np.sign(price_diff) * volume).fillna(0)
             group_df['obv'] = signed_volume.cumsum()
         return group_df
 
@@ -269,12 +273,6 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'vroc_{window}'] = ((group_df['VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
         return group_df
 
-    def _add_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if self.sma is not None:
-            for window in self.sma:
-                group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
-        return group_df
-
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.turnover is not None:
             for window in self.turnover:
@@ -298,8 +296,8 @@ class TechnicalCovariateTransform(CovariateTransform):
             low = group_df['PX_LOW']
             prior_close = close.shift(1)
 
-            bp = close - np.minimum(low, prior_close)
-            tr = np.maximum(high, prior_close) - np.minimum(low, prior_close)
+            bp = pd.Series(close - np.minimum(low, prior_close), index=group_df.index)
+            tr = pd.Series(np.maximum(high, prior_close) - np.minimum(low, prior_close), index=group_df.index)
 
             a1 = bp.rolling(7).sum() / tr.rolling(7).sum()
             a2 = bp.rolling(14).sum() / tr.rolling(14).sum()
@@ -338,12 +336,12 @@ class TechnicalCovariateTransform(CovariateTransform):
 
             gains = delta.clip(lower=0)
             losses = -delta.clip(upper=0)
-        for window in self.cmo:
-            sum_gains = gains.rolling(window).sum()
-            sum_losses = losses.rolling(window).sum()
+            for window in self.cmo:
+                sum_gains = gains.rolling(window).sum()
+                sum_losses = losses.rolling(window).sum()
 
-            cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
-            group_df[f'cmo_{window}'] = cmo
+                cmo = ((sum_gains - sum_losses) / (sum_gains + sum_losses)).replace([np.inf, -np.inf], np.nan) * 100
+                group_df[f'cmo_{window}'] = cmo
 
         return group_df
     
@@ -494,6 +492,26 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['bb_lower'] = lower_band
         group_df['bb_position'] = (close - lower_band) / (upper_band - lower_band).replace(0, np.nan)
 
+        return group_df
+    
+    def _add_ulcer(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.ulcer:
+            return group_df
+
+        required_cols = ['PX_HIGH', 'PX_LAST']
+        if not all(col in group_df.columns for col in required_cols):
+            warnings.warn("Skipping Ulcer Index: required columns missing ('PX_HIGH', PX_LAST)", UserWarning)
+            return group_df
+
+        n = 21
+        close = group_df['PX_LAST']
+        max_high = group_df['PX_HIGH'].rolling(window=n, min_periods=n).max()
+        pd_val = ((close - max_high) / max_high) * 100
+
+        pd_squared = pd_val.pow(2)
+        ulcer_index = pd_squared.rolling(window=n, min_periods=n).mean().pow(0.5)
+
+        group_df['ulcer_index'] = ulcer_index
         return group_df
 
 
