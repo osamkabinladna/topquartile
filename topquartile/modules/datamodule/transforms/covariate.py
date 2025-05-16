@@ -10,6 +10,7 @@ from tsfresh.feature_extraction.feature_calculators import ar_coefficient
 from statsmodels.tsa.ar_model import AutoReg
 from statsmodels.tsa.stattools import adfuller
 from scipy.stats import entropy
+from scipy.signal import welch
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -66,6 +67,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  fft_aggregated: bool = False,
                  first_location_maximum: bool = False,
                  first_location_minimum: bool = False,
+                 fourier_entropy: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -118,6 +120,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param fft_aggregated: Whether to calculate spectral centroid (mean), variance, skew, and kurtosis of FFT absolute spectrum.
         :param first_location_maximum: Relative position of first maximum in PX_LAST window
         :param first_location_minimum: Relative position of first minimum in PX_LAST window
+        :param fourier_entropy: Compute Welch power spectral density entropy (Fourier entropy)
         """
         super().__init__(df)
 
@@ -170,6 +173,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.fft_aggregated = fft_aggregated
         self.first_location_maximum = first_location_maximum
         self.first_location_minimum = first_location_minimum
+        self.fourier_entropy = fourier_entropy
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -229,8 +233,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_fft_aggregated(group)
         group = self._add_first_location_maximum(group)
         group = self._add_first_location_minimum(group)
+        group = self._add_fourier_entropy(group)
 
-        
         return group
 
     def transform(self) -> pd.DataFrame:
@@ -964,6 +968,19 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
+    
+    def _add_fourier_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.fourier_entropy:
+            return group_df
+
+        group_df['fourier_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                entropy(welch(x.dropna(), nperseg=len(x.dropna()))[1]) if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
 
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
