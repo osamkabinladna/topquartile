@@ -78,6 +78,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  longest_strike_below_mean: bool = False,
                  mean_change: bool = False,
                  mean_abs_change: bool = False,
+                 mean_second_derivative_central: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -140,6 +141,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param longest_strike_below_mean: Calculate the length of the longest consecutive subsequence below the mean.
         :param mean_change: Calculate the average of first differences over the rolling window.
         :param mean_abs_change: Calculate the average of absolute first differences over the rolling window.
+        :param mean_second_derivative_central: Calculate the average central approximation of the second derivative.
         """
         super().__init__(df)
 
@@ -202,6 +204,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.longest_strike_below_mean = longest_strike_below_mean
         self.mean_change = mean_change
         self.mean_abs_change = mean_abs_change
+        self.mean_second_derivative_central = mean_second_derivative_central
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -271,6 +274,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_longest_strike_below_mean(group)
         group = self._add_mean_change(group)
         group = self._add_mean_abs_change(group)
+        group = self._add_mean_second_derivative_central(group)
 
         return group
 
@@ -1155,6 +1159,19 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['mean_abs_change'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: (
                 np.mean(np.abs(np.diff(x.dropna()))) if len(x.dropna()) > 1 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_mean_second_derivative_central(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.mean_second_derivative_central:
+            return group_df
+
+        group_df['mean_second_derivative_central'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.mean(0.5 * (x.dropna()[2:] - 2 * x.dropna()[1:-1] + x.dropna()[:-2]))
+                if len(x.dropna()) >= 3 else np.nan
             ),
             raw=False
         )
