@@ -63,6 +63,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  count_above_mean: bool = False,
                  count_below_mean: bool = False,
                  energy_ratio_chunks: bool = False,
+                 fft_aggregated: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -112,6 +113,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param count_above_mean: Calculate number of values above the mean (Count_above_mean)
         :param count_below_mean: Calculate number of values below the mean (Count_below_mean)
         :param energy_ratio_chunks: Calculate energy ratio by chunks (Energy_ratio_by_chunks)
+        :param fft_aggregated: Whether to calculate spectral centroid (mean), variance, skew, and kurtosis of FFT absolute spectrum.
         """
         super().__init__(df)
 
@@ -161,6 +163,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.count_above_mean = count_above_mean
         self.count_below_mean = count_below_mean
         self.energy_ratio_chunks = energy_ratio_chunks
+        self.fft_aggregated = fft_aggregated
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -217,6 +220,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_count_above_mean(group)
         group = self._add_count_below_mean(group)
         group = self._add_energy_ratio_chunks(group)
+        group = self._add_fft_aggregated(group)
 
         
         return group
@@ -911,6 +915,26 @@ class TechnicalCovariateTransform(CovariateTransform):
             ) if len(x.dropna()) > 0 else np.nan,
             raw=False
         )
+        return group_df
+    
+    def _add_fft_aggregated(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.fft_aggregated:
+            return group_df
+
+        stats = {
+            'fft_mean': lambda x: np.mean(x),
+            'fft_var': lambda x: np.var(x),
+            'fft_skew': lambda x: pd.Series(x).skew(),
+            'fft_kurt': lambda x: pd.Series(x).kurt()
+        }
+
+        for name, func in stats.items():
+            group_df[name] = group_df['PX_LAST'].rolling(window=50).apply(
+                lambda x: func(np.abs(np.fft.fft(x.dropna().to_numpy())))
+                if len(x.dropna()) > 0 else np.nan,
+                raw=False
+            )
+
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
