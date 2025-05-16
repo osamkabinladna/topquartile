@@ -72,6 +72,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  kurtosis: bool = False,
                  last_location_of_maximum: bool = False,
                  lempel_ziv_complexity: bool = False,
+                 linear_trend_timewise: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -129,6 +130,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param kurtosis: Calculate kurtosis (G2) of the time series
         :param last_location_of_maximum: Calculate the last relative index of the maximum value in the time series
         :param lempel_ziv_complexity: Calculate the Lempel-Ziv complexity of the time series
+        :param linear_trend_timewise: Calculate linear trend components (p-value, correlation, intercept, slope, stderr)
         """
         super().__init__(df)
 
@@ -184,8 +186,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.fourier_entropy = fourier_entropy
         self.index_mass_quantile = index_mass_quantile
         self.kurtosis = kurtosis
-        self.last_location_of_maximum: bool = False
-        self.lempel_ziv_complexity: bool = False
+        self.last_location_of_maximum = last_location_of_maximum
+        self.lempel_ziv_complexity = lempel_ziv_complexity
+        self.linear_trend_timewise = linear_trend_timewise
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -250,6 +253,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_kurtosis(group)
         group = self._add_last_location_of_maximum(group)
         group = self._add_lempel_ziv_complexity(group)
+        group = self._add_linear_trend_timewise(group)
 
         return group
 
@@ -1059,6 +1063,31 @@ class TechnicalCovariateTransform(CovariateTransform):
             ) if len(x.dropna()) > 0 else np.nan,
             raw=False
         )
+        return group_df
+    
+    def _add_linear_trend_timewise(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.linear_trend_timewise:
+            return group_df
+
+        def linreg_vals(x):
+            x = x.dropna().to_numpy()
+            if len(x) < 2:
+                return [np.nan] * 5
+            t = np.arange(len(x))
+            slope, intercept = np.polyfit(t, x, 1)
+            y_pred = intercept + slope * t
+            residuals = x - y_pred
+            stderr = np.std(residuals)
+            corr = np.corrcoef(t, x)[0, 1]
+            p_val = 2 * (1 - abs(corr))
+            return [p_val, corr, intercept, slope, stderr]
+
+        result = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: pd.Series(linreg_vals(x)), raw=False
+        )
+
+        group_df[['lintrend_p', 'lintrend_corr', 'lintrend_intercept', 'lintrend_slope', 'lintrend_stderr']] = result
+        
         return group_df
 
 
