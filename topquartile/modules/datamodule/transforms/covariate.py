@@ -1326,6 +1326,7 @@ class FundamentalCovariateTransform(CovariateTransform):
                  pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
                  adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False, 
                  price_to_sales: bool = False, price_to_book: bool = False, dividend_yield: bool = False, fx_rate: bool = False, credit_ytw: bool = False, global_credit_ytw: bool = False,
+                 vix: bool = False,
                  ):
         """
         :param df: dataframe of covariates including fundamental data and price/market cap
@@ -1346,6 +1347,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         :param fx_rate: Include FX rate of asset's country of origin against USD
         :param credit_ytw: Include Yield to Worst on investment-grade corporate bonds (region-specific)
         :param global_credit_ytw: Include global corporate bond yield (aggregated, dominated by US credit)
+        :param vix: Include Volatility Index (VIX) which measures implied volatility of S&P 500
         """
         super().__init__(df)
 
@@ -1366,6 +1368,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.fx_rate = fx_rate
         self.credit_ytw = credit_ytw
         self.global_credit_ytw = global_credit_ytw
+        self.vix = vix
 
         self.required_base = set()
         if self.pe_ratio or self.earnings_yield or self.pe_band:
@@ -1394,6 +1397,8 @@ class FundamentalCovariateTransform(CovariateTransform):
             self.required_base.add('CREDIT_YTW')
         if self.global_credit_ytw:
             self.required_base.add('GLOBAL_CREDIT_YTW')
+        if self.vix:
+            self.required_base.add('VIX')
 
 
         if self.pe_band is not None:
@@ -1427,6 +1432,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         group = self._add_fx_rate(group)
         group = self._add_credit_ytw(group)
         group = self._add_global_credit_ytw(group)
+        group = self._add_vix(group)
 
         return group
 
@@ -1580,6 +1586,12 @@ class FundamentalCovariateTransform(CovariateTransform):
         if not self.global_credit_ytw:
             return group_df
         group_df['global_credit_ytw'] = group_df['GLOBAL_CREDIT_YTW']
+        return group_df
+    
+    def _add_vix(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.vix:
+            return group_df
+        group_df['vix'] = group_df['VIX']
         return group_df
 
 
