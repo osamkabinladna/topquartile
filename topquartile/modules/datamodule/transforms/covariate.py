@@ -87,6 +87,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  partial_autocorrelation: Optional[List[int]] = None,
                  permutation_entropy: bool = False,
                  sample_entropy: bool = False,
+                 skewness: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -154,6 +155,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param partial_autocorrelation: List of lags at which to compute the partial autocorrelation
         :param permutation_entropy: Calculate the permutation entropy as a measure of time series complexity.
         :param sample_entropy: Calculate the sample entropy to assess time series complexity.
+        :param skewness: Calculate the sample skewness (G1) of the time series.
         """
         super().__init__(df)
 
@@ -221,6 +223,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.partial_autocorrelation = partial_autocorrelation
         self.permutation_entropy = permutation_entropy
         self.sample_entropy = sample_entropy
+        self.skewness = skewness
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -295,6 +298,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_partial_autocorrelation(group)
         group = self._add_permutation_entropy(group)
         group = self._add_sample_entropy(group)
+        group = self._add_skewness(group)
 
         return group
 
@@ -1243,7 +1247,19 @@ class TechnicalCovariateTransform(CovariateTransform):
         )
 
         return group_df
+    
+    def _add_skewness(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.skewness:
+            return group_df
 
+        group_df['skewness'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                ((np.sqrt(len(x)) * np.mean((x - x.mean()) ** 3)) /
+                (np.std(x, ddof=0) ** 3)) if len(x.dropna()) > 2 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
 
 
 
