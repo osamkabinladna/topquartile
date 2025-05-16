@@ -62,6 +62,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  cid_ce: bool = False,
                  count_above_mean: bool = False,
                  count_below_mean: bool = False,
+                 energy_ratio_chunks: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -110,6 +111,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param cid_ce: Calculate time series complexity (CID) using the 'PX_LAST' column.
         :param count_above_mean: Calculate number of values above the mean (Count_above_mean)
         :param count_below_mean: Calculate number of values below the mean (Count_below_mean)
+        :param energy_ratio_chunks: Calculate energy ratio by chunks (Energy_ratio_by_chunks)
         """
         super().__init__(df)
 
@@ -158,6 +160,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.cid_ce = cid_ce
         self.count_above_mean = count_above_mean
         self.count_below_mean = count_below_mean
+        self.energy_ratio_chunks = energy_ratio_chunks
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -213,6 +216,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_cid_ce(group)
         group = self._add_count_above_mean(group)
         group = self._add_count_below_mean(group)
+        group = self._add_energy_ratio_chunks(group)
 
         
         return group
@@ -844,64 +848,69 @@ class TechnicalCovariateTransform(CovariateTransform):
         if not self.adfuller:
             return group_df
 
-        def safe_adf(x):
-            try:
-                result = adfuller(x, autolag='AIC')
-                return result[0]  # test statistic
-            except Exception:
-                return np.nan
-
-        group_df['adfuller'] = group_df['PX_LAST'].rolling(window=50).apply(safe_adf, raw=False)
+        group_df['adfuller'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: adfuller(x, autolag='AIC')[0] if len(x.dropna()) > 1 else np.nan,
+            raw=False
+        )
         return group_df
     
     def _add_binned_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.binned_entropy:
             return group_df
 
-        def be(x, bins=10):
-            try:
-                counts, _ = np.histogram(x, bins=bins)
-                probs = counts / np.sum(counts)
-                probs = probs[probs > 0]
-                return -np.sum(probs * np.log(probs))
-            except Exception:
-                return np.nan
-
-        group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(be, raw=False)
+        group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                -np.sum((counts := np.histogram(x.dropna(), bins=10)[0]) / np.sum(counts) * np.log((counts / np.sum(counts))[counts > 0]))
+                if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
         return group_df
     
     def _add_cid_ce(self, group_df: pd.DataFrame) -> pd.DataFrame:
-    
-        def cid(x):
-            x = pd.Series(x).dropna().to_numpy()
-            if len(x) < 2:
-                return np.nan
-            diffs = np.diff(x)
-            return np.sqrt(np.sum(diffs ** 2))
+        if not self.cid_ce:
+            return group_df
 
-        group_df['cid_ce'] = group_df['PX_LAST'].rolling(window=50).apply(cid, raw=False)
+        group_df['cid_ce'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: np.sqrt(np.sum(np.diff(pd.Series(x).dropna().to_numpy()) ** 2))
+            if len(pd.Series(x).dropna()) >= 2 else np.nan,
+            raw=False
+        )
         return group_df
     
     def _add_count_above_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.count_above_mean:
+            return group_df
 
-        def count_above_mean(x):
-            x = pd.Series(x).dropna()
-            if len(x) == 0:
-                return np.nan
-            return np.sum(x > x.mean())
-
-        group_df['count_above_mean'] = group_df['PX_LAST'].rolling(window=50).apply(count_above_mean, raw=False)
+        group_df['count_above_mean'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: np.sum(x > np.mean(x)) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
         return group_df
     
     def _add_count_below_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
-    
-        def count_below_mean(x):
-            x = pd.Series(x).dropna()
-            if len(x) == 0:
-                return np.nan
-            return np.sum(x < x.mean())
+        if not self.count_below_mean:
+            return group_df
 
-        group_df['count_below_mean'] = group_df['PX_LAST'].rolling(window=50).apply(count_below_mean, raw=False)
+        group_df['count_below_mean'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: np.sum(x < np.mean(x)) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
+        return group_df
+
+    
+    def _add_energy_ratio_chunks(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.energy_ratio_chunks:
+            return group_df
+
+        group_df['energy_ratio_by_chunks'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.sum(x.dropna().to_numpy()[:len(x.dropna()) // 2] ** 2) /
+                np.sum(x.dropna().to_numpy() ** 2)
+                if np.sum(x.dropna().to_numpy() ** 2) != 0 else np.nan
+            ) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
         return group_df
 
 class FundamentalCovariateTransform(CovariateTransform):
