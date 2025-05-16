@@ -12,6 +12,7 @@ from statsmodels.tsa.stattools import adfuller
 from scipy.stats import entropy
 from scipy.signal import welch
 import itertools
+from scipy.signal import find_peaks_cwt
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -79,6 +80,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  mean_change: bool = False,
                  mean_abs_change: bool = False,
                  mean_second_derivative_central: bool = False,
+                 number_cwt_peaks: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -142,6 +144,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param mean_change: Calculate the average of first differences over the rolling window.
         :param mean_abs_change: Calculate the average of absolute first differences over the rolling window.
         :param mean_second_derivative_central: Calculate the average central approximation of the second derivative.
+        :param number_cwt_peaks: Compute number of peaks in CWT-smoothed signal using ricker wavelet.
         """
         super().__init__(df)
 
@@ -205,6 +208,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.mean_change = mean_change
         self.mean_abs_change = mean_abs_change
         self.mean_second_derivative_central = mean_second_derivative_central
+        self.number_cwt_peaks = number_cwt_peaks
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -275,6 +279,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_mean_change(group)
         group = self._add_mean_abs_change(group)
         group = self._add_mean_second_derivative_central(group)
+        group = self._add_number_cwt_peaks(group)
 
         return group
 
@@ -1176,6 +1181,21 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
+    
+    def _add_number_cwt_peaks(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.number_cwt_peaks:
+            return group_df
+
+        group_df['number_cwt_peaks'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                len(find_peaks_cwt(x.dropna().to_numpy(), widths=np.arange(1, 10)))
+                if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+
 
 
 class FundamentalCovariateTransform(CovariateTransform):
