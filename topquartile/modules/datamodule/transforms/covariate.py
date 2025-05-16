@@ -15,6 +15,7 @@ import itertools
 from scipy.signal import find_peaks_cwt
 from statsmodels.tsa.stattools import pacf
 from antropy import perm_entropy
+from antropy import sample_entropy
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -85,6 +86,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  number_cwt_peaks: bool = False,
                  partial_autocorrelation: Optional[List[int]] = None,
                  permutation_entropy: bool = False,
+                 sample_entropy: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -151,6 +153,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param number_cwt_peaks: Compute number of peaks in CWT-smoothed signal using ricker wavelet.
         :param partial_autocorrelation: List of lags at which to compute the partial autocorrelation
         :param permutation_entropy: Calculate the permutation entropy as a measure of time series complexity.
+        :param sample_entropy: Calculate the sample entropy to assess time series complexity.
         """
         super().__init__(df)
 
@@ -217,6 +220,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.number_cwt_peaks = number_cwt_peaks
         self.partial_autocorrelation = partial_autocorrelation
         self.permutation_entropy = permutation_entropy
+        self.sample_entropy = sample_entropy
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -290,6 +294,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_number_cwt_peaks(group)
         group = self._add_partial_autocorrelation(group)
         group = self._add_permutation_entropy(group)
+        group = self._add_sample_entropy(group)
 
         return group
 
@@ -1223,6 +1228,17 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['permutation_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: perm_entropy(x.dropna().to_numpy()) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
+
+        return group_df
+    
+    def _add_sample_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.sample_entropy:
+            return group_df
+
+        group_df['sample_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: sample_entropy(x.dropna().to_numpy()) if len(x.dropna()) > 0 else np.nan,
             raw=False
         )
 
