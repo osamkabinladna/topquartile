@@ -1504,3 +1504,71 @@ class FundamentalCovariateTransform(CovariateTransform):
         return group_df
 
 
+class MacroeconomicCovariateTransform(CovariateTransform): # TBC KN
+    def __init__(self, df: pd.DataFrame,
+                 fed_rate: bool = False,
+                 us10y_yield: bool = False,
+                 us_cpi: bool = False,
+                 bdi: bool = False,
+                 crb_spot: bool = False):
+        """
+        :param df: DataFrame with macroeconomic data joined by date
+        :param fed_rate: Include Federal Funds Rate
+        :param us10y_yield: Include US 10Y Bond Yield
+        :param us_cpi: Include US CPI
+        :param bdi: Include Baltic Dry Index
+        :param crb_spot: Include CRB Commodity Spot Index
+        """
+        super().__init__(df)
+        self.fed_rate = fed_rate
+        self.us10y_yield = us10y_yield
+        self.us_cpi = us_cpi
+        self.bdi = bdi
+        self.crb_spot = crb_spot
+
+        self.required_base = set()
+        if fed_rate: self.required_base.add("Fed_rate")
+        if us10y_yield: self.required_base.add("US10Y_yield")
+        if us_cpi: self.required_base.add("US_CPI")
+        if bdi: self.required_base.add("BDI")
+        if crb_spot: self.required_base.add("CRB_Spot")
+
+        missing = [col for col in self.required_base if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required macro columns: {missing}")
+
+    def transform(self) -> pd.DataFrame:
+        return self.group_transform(self.df)
+
+    def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
+        if self.fed_rate:
+            group = self._add_fed_rate(group)
+        if self.us10y_yield:
+            group = self._add_us10y_yield(group)
+        if self.us_cpi:
+            group = self._add_us_cpi(group)
+        if self.bdi:
+            group = self._add_bdi(group)
+        if self.crb_spot:
+            group = self._add_crb_spot(group)
+        return group
+
+    def _add_fed_rate(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['fed_rate'] = df['Fed_rate']
+        return df
+
+    def _add_us10y_yield(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['us10y_yield'] = df['US10Y_yield']
+        return df
+
+    def _add_us_cpi(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['us_cpi'] = df['US_CPI']
+        return df
+
+    def _add_bdi(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['bdi'] = df['BDI']
+        return df
+
+    def _add_crb_spot(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['crb_spot'] = df['CRB_Spot']
+        return df
