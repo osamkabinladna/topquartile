@@ -76,6 +76,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  linear_trend_timewise: bool = False,
                  longest_strike_above_mean: bool = False,
                  longest_strike_below_mean: bool = False,
+                 mean_change: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -136,6 +137,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param linear_trend_timewise: Calculate linear trend components (p-value, correlation, intercept, slope, stderr)
         :param longest_strike_above_mean: Calculate the length of the longest consecutive subsequence above the mean
         :param longest_strike_below_mean: Calculate the length of the longest consecutive subsequence below the mean.
+        :param mean_change: Calculate the average of first differences over the rolling window.
         """
         super().__init__(df)
 
@@ -196,6 +198,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.linear_trend_timewise = linear_trend_timewise
         self.longest_strike_above_mean = longest_strike_above_mean
         self.longest_strike_below_mean = longest_strike_below_mean
+        self.mean_change = mean_change
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -263,6 +266,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_linear_trend_timewise(group)
         group = self._add_longest_strike_above_mean(group)
         group = self._add_longest_strike_below_mean(group)
+        group = self._add_mean_change(group)
 
         return group
 
@@ -1123,6 +1127,18 @@ class TechnicalCovariateTransform(CovariateTransform):
             lambda x: (
                 max((sum(1 for _ in g) for k, g in itertools.groupby(x < x.mean()) if k), default=np.nan)
                 if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_mean_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.mean_change:
+            return group_df
+
+        group_df['mean_change'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.mean(np.diff(x.dropna())) if len(x.dropna()) > 1 else np.nan
             ),
             raw=False
         )
