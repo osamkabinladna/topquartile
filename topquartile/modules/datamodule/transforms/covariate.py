@@ -69,6 +69,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  first_location_minimum: bool = False,
                  fourier_entropy: bool = False,
                  index_mass_quantile: Optional[float] = None,
+                 kurtosis: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -123,6 +124,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param first_location_minimum: Relative position of first minimum in PX_LAST window
         :param fourier_entropy: Compute Welch power spectral density entropy (Fourier entropy)
         :param index_mass_quantile: Float between 0 and 1, quantile of mass center to compute (e.g., 0.5 = center of mass)
+        :param kurtosis: Calculate kurtosis (G2) of the time series
         """
         super().__init__(df)
 
@@ -177,6 +179,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.first_location_minimum = first_location_minimum
         self.fourier_entropy = fourier_entropy
         self.index_mass_quantile = index_mass_quantile
+        self.kurtosis = kurtosis
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -238,6 +241,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_first_location_minimum(group)
         group = self._add_fourier_entropy(group)
         group = self._add_index_mass_quantile(group)
+        group = self._add_kurtosis(group)
 
         return group
 
@@ -996,6 +1000,21 @@ class TechnicalCovariateTransform(CovariateTransform):
                 np.searchsorted(np.cumsum(np.abs(x.dropna())), 
                                 q * np.sum(np.abs(x.dropna()))) / len(x.dropna())
                 if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_kurtosis(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.kurtosis:
+            return group_df
+
+        group_df['kurtosis'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                (
+                    ((len(x) - 1) / ((len(x) - 2) * (len(x) - 3))) *
+                    ((len(x) + 1) * ((x - x.mean())**4).mean() / ((x - x.mean())**2).mean()**2 - 3 * (len(x) - 1))
+                ) if len(x.dropna()) >= 4 else np.nan
             ),
             raw=False
         )
