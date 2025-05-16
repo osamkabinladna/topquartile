@@ -91,6 +91,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  skewness: bool = False,
                  spkt_welch_density: bool = False,
                  time_reversal_asymmetry_statistic: bool = False,
+                 variation_coefficient: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -161,6 +162,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param skewness: Calculate the sample skewness (G1) of the time series.
         :param spkt_welch_density: Calculate spectral Welch density over rolling windows using tsfresh.
         :param time_reversal_asymmetry_statistic: Whether to calculate the time reversal asymmetry statistic (TRAS) from the time series.
+        :param variation_coefficient: Whether to calculate the variation coefficient (standard deviation / mean) from the time series.
         """
         super().__init__(df)
 
@@ -231,6 +233,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.skewness = skewness
         self.spkt_welch_density = spkt_welch_density
         self.time_reversal_asymmetry_statistic = time_reversal_asymmetry_statistic
+        self.variation_coefficient = variation_coefficient
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -308,6 +311,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_skewness(group)
         group = self._add_spkt_welch_density(group)
         group = self._add_time_reversal_asymmetry_statistic(group)
+        group = self._add_variation_coefficient(group)
 
         return group
 
@@ -1303,6 +1307,17 @@ class TechnicalCovariateTransform(CovariateTransform):
         )
 
         return group_df
+    
+    def _add_variation_coefficient(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.variation_coefficient:
+            return group_df
+
+        group_df['variation_coefficient'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (np.std(x) / np.mean(x)) if np.mean(x) != 0 else np.nan,
+            raw=False
+        )
+        return group_df
+
 
 
 
