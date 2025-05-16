@@ -1325,7 +1325,7 @@ class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
                  pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
                  adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False, 
-                 price_to_sales: bool = False, price_to_book: bool = False, dividend_yield: bool = False,
+                 price_to_sales: bool = False, price_to_book: bool = False, dividend_yield: bool = False, fx_rate: bool = False,
                  ):
         """
         :param df: dataframe of covariates including fundamental data and price/market cap
@@ -1343,6 +1343,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         :param price_to_sales: Calculate Price to Sales ratio (Market Cap / TTM Revenue)
         :param price_to_book: Calculate Price to Book ratio (Price per Share / Book Value per Share)
         :param dividend_yield: Calculate Dividend Yield (DPS / Price per Share)
+        :param fx_rate: Include FX rate of asset's country of origin against USD
         """
         super().__init__(df)
 
@@ -1360,6 +1361,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.price_to_sales = price_to_sales
         self.price_to_book = price_to_book
         self.dividend_yield = dividend_yield
+        self.fx_rate = fx_rate
 
         self.required_base = set()
         if self.pe_ratio or self.earnings_yield or self.pe_band:
@@ -1382,6 +1384,8 @@ class FundamentalCovariateTransform(CovariateTransform):
             self.required_base.update(['PX_LAST', 'BOOK_VAL_PER_SH'])
         if self.dividend_yield:
             self.required_base.update(['PX_LAST', 'DVD_SH_12M'])
+        if self.fx_rate:
+            self.required_base.add('FX_RATE')
 
         if self.pe_band is not None:
             self.required_base.update(['PX_LAST', 'IS_EPS'])
@@ -1411,6 +1415,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         group = self._add_price_to_sales(group)
         group = self._add_price_to_book(group)
         group = self._add_dividend_yield(group)
+        group = self._add_fx_rate(group)
 
         return group
 
@@ -1546,6 +1551,12 @@ class FundamentalCovariateTransform(CovariateTransform):
         dividend_yield = group_df['DVD_SH_12M'] / price
         group_df['dividend_yield'] = dividend_yield.replace([np.inf, -np.inf], np.nan)
 
+        return group_df
+    
+    def _add_fx_rate(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.fx_rate:
+            return group_df
+        group_df['fx_rate'] = group_df['FX_RATE']
         return group_df
 
 
