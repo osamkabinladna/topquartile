@@ -65,6 +65,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  energy_ratio_chunks: bool = False,
                  fft_aggregated: bool = False,
                  first_location_maximum: bool = False,
+                 first_location_minimum: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -116,6 +117,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param energy_ratio_chunks: Calculate energy ratio by chunks (Energy_ratio_by_chunks)
         :param fft_aggregated: Whether to calculate spectral centroid (mean), variance, skew, and kurtosis of FFT absolute spectrum.
         :param first_location_maximum: Relative position of first maximum in PX_LAST window
+        :param first_location_minimum: Relative position of first minimum in PX_LAST window
         """
         super().__init__(df)
 
@@ -167,6 +169,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.energy_ratio_chunks = energy_ratio_chunks
         self.fft_aggregated = fft_aggregated
         self.first_location_maximum = first_location_maximum
+        self.first_location_minimum = first_location_minimum
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -225,6 +228,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_energy_ratio_chunks(group)
         group = self._add_fft_aggregated(group)
         group = self._add_first_location_maximum(group)
+        group = self._add_first_location_minimum(group)
 
         
         return group
@@ -947,6 +951,16 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['first_location_of_maximum'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: np.argmax(x.to_numpy()) / len(x.dropna()) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
+        return group_df
+    
+    def _add_first_location_minimum(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.first_location_minimum:
+            return group_df
+
+        group_df['first_location_of_minimum'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: np.argmin(x.to_numpy()) / len(x.dropna()) if len(x.dropna()) > 0 else np.nan,
             raw=False
         )
         return group_df
