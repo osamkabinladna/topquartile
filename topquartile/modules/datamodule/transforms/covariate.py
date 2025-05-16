@@ -16,6 +16,7 @@ from scipy.signal import find_peaks_cwt
 from statsmodels.tsa.stattools import pacf
 from antropy import perm_entropy
 from antropy import sample_entropy
+from tsfresh.feature_extraction.feature_calculators import spkt_welch_density
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -88,6 +89,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  permutation_entropy: bool = False,
                  sample_entropy: bool = False,
                  skewness: bool = False,
+                 spkt_welch_density: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -156,6 +158,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param permutation_entropy: Calculate the permutation entropy as a measure of time series complexity.
         :param sample_entropy: Calculate the sample entropy to assess time series complexity.
         :param skewness: Calculate the sample skewness (G1) of the time series.
+        :param spkt_welch_density: Calculate spectral Welch density over rolling windows using tsfresh.
         """
         super().__init__(df)
 
@@ -224,6 +227,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.permutation_entropy = permutation_entropy
         self.sample_entropy = sample_entropy
         self.skewness = skewness
+        self.spkt_welch_density = spkt_welch_density
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -299,6 +303,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_permutation_entropy(group)
         group = self._add_sample_entropy(group)
         group = self._add_skewness(group)
+        group = self._add_spkt_welch_density(group)
 
         return group
 
@@ -1259,6 +1264,23 @@ class TechnicalCovariateTransform(CovariateTransform):
             ),
             raw=False
         )
+        return group_df
+    
+    def _add_spkt_welch_density(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.spkt_welch_density:
+            return group_df
+
+        def safe_spkt(x):
+            x_clean = x.dropna().to_numpy()
+            if len(x_clean) == 0:
+                return np.nan
+            result = spkt_welch_density(x_clean, n_coefficients=5) # TBC KN
+            return result[1] if len(result) > 1 else np.nan
+
+        group_df['spkt_welch_density'] = group_df['PX_LAST'].rolling(window=50).apply(
+            safe_spkt, raw=False
+        )
+
         return group_df
 
 
