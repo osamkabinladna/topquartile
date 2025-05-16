@@ -71,6 +71,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  index_mass_quantile: Optional[float] = None,
                  kurtosis: bool = False,
                  last_location_of_maximum: bool = False,
+                 lempel_ziv_complexity: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -127,6 +128,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param index_mass_quantile: Float between 0 and 1, quantile of mass center to compute (e.g., 0.5 = center of mass)
         :param kurtosis: Calculate kurtosis (G2) of the time series
         :param last_location_of_maximum: Calculate the last relative index of the maximum value in the time series
+        :param lempel_ziv_complexity: Calculate the Lempel-Ziv complexity of the time series
         """
         super().__init__(df)
 
@@ -183,6 +185,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.index_mass_quantile = index_mass_quantile
         self.kurtosis = kurtosis
         self.last_location_of_maximum: bool = False
+        self.lempel_ziv_complexity: bool = False
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -245,6 +248,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_fourier_entropy(group)
         group = self._add_index_mass_quantile(group)
         group = self._add_kurtosis(group)
+        group = self._add_last_location_of_maximum(group)
+        group = self._add_lempel_ziv_complexity(group)
 
         return group
 
@@ -1032,6 +1037,26 @@ class TechnicalCovariateTransform(CovariateTransform):
                 np.where(x == x.max())[0][-1] / len(x)
                 if len(x.dropna()) > 0 else np.nan
             ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_lempel_ziv_complexity(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.lempel_ziv_complexity:
+            return group_df
+
+        group_df['lempel_ziv_complexity'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                (lambda s: (
+                    (lambda b: (
+                        sum(
+                            1 for i in range(len(b))
+                            if not any(b[i:i+k] not in b[:i]
+                                    for k in range(1, len(b)-i+1))
+                        ) + 1
+                    ))(''.join(['1' if v > np.median(s) else '0' for v in s]))
+                ))(x.dropna().to_numpy())
+            ) if len(x.dropna()) > 0 else np.nan,
             raw=False
         )
         return group_df
