@@ -90,6 +90,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  sample_entropy: bool = False,
                  skewness: bool = False,
                  spkt_welch_density: bool = False,
+                 time_reversal_asymmetry_statistic: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -159,6 +160,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param sample_entropy: Calculate the sample entropy to assess time series complexity.
         :param skewness: Calculate the sample skewness (G1) of the time series.
         :param spkt_welch_density: Calculate spectral Welch density over rolling windows using tsfresh.
+        :param time_reversal_asymmetry_statistic: Whether to calculate the time reversal asymmetry statistic (TRAS) from the time series.
         """
         super().__init__(df)
 
@@ -228,6 +230,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.sample_entropy = sample_entropy
         self.skewness = skewness
         self.spkt_welch_density = spkt_welch_density
+        self.time_reversal_asymmetry_statistic = time_reversal_asymmetry_statistic
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -304,6 +307,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_sample_entropy(group)
         group = self._add_skewness(group)
         group = self._add_spkt_welch_density(group)
+        group = self._add_time_reversal_asymmetry_statistic(group)
 
         return group
 
@@ -1279,6 +1283,23 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['spkt_welch_density'] = group_df['PX_LAST'].rolling(window=50).apply(
             safe_spkt, raw=False
+        )
+
+        return group_df
+    
+    def _add_time_reversal_asymmetry_statistic(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.time_reversal_asymmetry_statistic:
+            return group_df
+
+        def tras(x, lag=1):
+            x = x.dropna().to_numpy()
+            n = len(x)
+            if n <= 2 * lag:
+                return np.nan
+            return np.mean((x[2 * lag:] ** 2 * x[:-2 * lag]) - (x[lag:-lag] * x[lag:-lag]))
+
+        group_df['time_reversal_asymmetry_statistic'] = group_df['PX_LAST'].rolling(window=50).apply(
+            tras, raw=False
         )
 
         return group_df
