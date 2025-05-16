@@ -13,6 +13,7 @@ from scipy.stats import entropy
 from scipy.signal import welch
 import itertools
 from scipy.signal import find_peaks_cwt
+from statsmodels.tsa.stattools import pacf
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -81,6 +82,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  mean_abs_change: bool = False,
                  mean_second_derivative_central: bool = False,
                  number_cwt_peaks: bool = False,
+                 partial_autocorrelation: Optional[List[int]] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -145,6 +147,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param mean_abs_change: Calculate the average of absolute first differences over the rolling window.
         :param mean_second_derivative_central: Calculate the average central approximation of the second derivative.
         :param number_cwt_peaks: Compute number of peaks in CWT-smoothed signal using ricker wavelet.
+        :param partial_autocorrelation: List of lags at which to compute the partial autocorrelation
         """
         super().__init__(df)
 
@@ -209,6 +212,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.mean_abs_change = mean_abs_change
         self.mean_second_derivative_central = mean_second_derivative_central
         self.number_cwt_peaks = number_cwt_peaks
+        self.partial_autocorrelation = partial_autocorrelation
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -280,6 +284,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_mean_abs_change(group)
         group = self._add_mean_second_derivative_central(group)
         group = self._add_number_cwt_peaks(group)
+        group = self._add_partial_autocorrelation(group)
 
         return group
 
@@ -1193,6 +1198,18 @@ class TechnicalCovariateTransform(CovariateTransform):
             ),
             raw=False
         )
+        return group_df
+    
+    def _add_partial_autocorrelation(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.partial_autocorrelation is None:
+            return group_df
+
+        for lag in self.partial_autocorrelation:
+            group_df[f'partial_autocorr_lag_{lag}'] = group_df['PX_LAST'].rolling(window=lag + 20).apply(
+                lambda x: pacf(x.dropna(), nlags=lag, method='ols')[lag] if len(x.dropna()) > lag else np.nan,
+                raw=False
+            )
+
         return group_df
 
 
