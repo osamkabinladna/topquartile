@@ -68,6 +68,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  first_location_maximum: bool = False,
                  first_location_minimum: bool = False,
                  fourier_entropy: bool = False,
+                 index_mass_quantile: Optional[float] = None,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -121,6 +122,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param first_location_maximum: Relative position of first maximum in PX_LAST window
         :param first_location_minimum: Relative position of first minimum in PX_LAST window
         :param fourier_entropy: Compute Welch power spectral density entropy (Fourier entropy)
+        :param index_mass_quantile: Float between 0 and 1, quantile of mass center to compute (e.g., 0.5 = center of mass)
         """
         super().__init__(df)
 
@@ -174,6 +176,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.first_location_maximum = first_location_maximum
         self.first_location_minimum = first_location_minimum
         self.fourier_entropy = fourier_entropy
+        self.index_mass_quantile = index_mass_quantile
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -234,6 +237,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_first_location_maximum(group)
         group = self._add_first_location_minimum(group)
         group = self._add_fourier_entropy(group)
+        group = self._add_index_mass_quantile(group)
 
         return group
 
@@ -976,6 +980,22 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['fourier_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: (
                 entropy(welch(x.dropna(), nperseg=len(x.dropna()))[1]) if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_index_mass_quantile(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.index_mass_quantile is None:
+            return group_df
+
+        q = self.index_mass_quantile
+
+        group_df['index_mass_quantile'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.searchsorted(np.cumsum(np.abs(x.dropna())), 
+                                q * np.sum(np.abs(x.dropna()))) / len(x.dropna())
+                if len(x.dropna()) > 0 else np.nan
             ),
             raw=False
         )
