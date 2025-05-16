@@ -1325,7 +1325,7 @@ class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
                  pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
                  adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False, 
-                 price_to_sales: bool = False, price_to_book: bool = False, dividend_yield: bool = False, fx_rate: bool = False, credit_ytw: bool = False,
+                 price_to_sales: bool = False, price_to_book: bool = False, dividend_yield: bool = False, fx_rate: bool = False, credit_ytw: bool = False, global_credit_ytw: bool = False,
                  ):
         """
         :param df: dataframe of covariates including fundamental data and price/market cap
@@ -1345,6 +1345,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         :param dividend_yield: Calculate Dividend Yield (DPS / Price per Share)
         :param fx_rate: Include FX rate of asset's country of origin against USD
         :param credit_ytw: Include Yield to Worst on investment-grade corporate bonds (region-specific)
+        :param global_credit_ytw: Include global corporate bond yield (aggregated, dominated by US credit)
         """
         super().__init__(df)
 
@@ -1364,6 +1365,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.dividend_yield = dividend_yield
         self.fx_rate = fx_rate
         self.credit_ytw = credit_ytw
+        self.global_credit_ytw = global_credit_ytw
 
         self.required_base = set()
         if self.pe_ratio or self.earnings_yield or self.pe_band:
@@ -1390,6 +1392,9 @@ class FundamentalCovariateTransform(CovariateTransform):
             self.required_base.add('FX_RATE')
         if self.credit_ytw:
             self.required_base.add('CREDIT_YTW')
+        if self.global_credit_ytw:
+            self.required_base.add('GLOBAL_CREDIT_YTW')
+
 
         if self.pe_band is not None:
             self.required_base.update(['PX_LAST', 'IS_EPS'])
@@ -1421,6 +1426,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         group = self._add_dividend_yield(group)
         group = self._add_fx_rate(group)
         group = self._add_credit_ytw(group)
+        group = self._add_global_credit_ytw(group)
 
         return group
 
@@ -1568,6 +1574,12 @@ class FundamentalCovariateTransform(CovariateTransform):
         if not self.credit_ytw:
             return group_df
         group_df['credit_ytw'] = group_df['CREDIT_YTW']
+        return group_df
+    
+    def _add_global_credit_ytw(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.global_credit_ytw:
+            return group_df
+        group_df['global_credit_ytw'] = group_df['GLOBAL_CREDIT_YTW']
         return group_df
 
 
