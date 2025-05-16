@@ -1325,7 +1325,7 @@ class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
                  pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
                  adjusted_roic: bool = False, operating_efficiency: bool = False, levered_roa: bool = False, eps_growth: bool = False, 
-                 price_to_sales: bool = False,
+                 price_to_sales: bool = False, price_to_book: bool = False,
                  ):
         """
         :param df: dataframe of covariates including fundamental data and price/market cap
@@ -1341,6 +1341,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         :param levered_roa: Calculate Levered ROA (ROA * (1 + Debt/Equity))
         :param eps_growth: Calculate Earnings Per Share growth (period over period)
         :param price_to_sales: Calculate Price to Sales ratio (Market Cap / TTM Revenue)
+        :param price_to_book: Calculate Price to Book ratio (Price per Share / Book Value per Share)
         """
         super().__init__(df)
 
@@ -1356,6 +1357,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         self.levered_roa = levered_roa
         self.eps_growth = eps_growth
         self.price_to_sales = price_to_sales
+        self.price_to_book = price_to_book
 
         self.required_base = set()
         if self.pe_ratio or self.earnings_yield or self.pe_band:
@@ -1374,6 +1376,8 @@ class FundamentalCovariateTransform(CovariateTransform):
             self.required_base.add('IS_EPS')
         if self.price_to_sales:
             self.required_base.update(['CUR_MKT_CAP', 'SALES_REV_TURN'])
+        if self.price_to_book:
+            self.required_base.update(['PX_LAST', 'BOOK_VAL_PER_SH'])
 
         if self.pe_band is not None:
             self.required_base.update(['PX_LAST', 'IS_EPS'])
@@ -1401,6 +1405,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         group = self._add_levered_roa(group)
         group = self._add_eps_growth(group)
         group = self._add_price_to_sales(group)
+        group = self._add_price_to_book(group)
 
         return group
 
@@ -1518,6 +1523,16 @@ class FundamentalCovariateTransform(CovariateTransform):
         ps_ratio = group_df['CUR_MKT_CAP'] / revenue
         group_df['price_to_sales'] = ps_ratio.replace([np.inf, -np.inf], np.nan)
         return group_df
+    
+    def _add_price_to_book(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.price_to_book:
+            return group_df
+
+        bps = group_df['BOOK_VAL_PER_SH'].replace(0, np.nan)
+        pb_ratio = group_df['PX_LAST'] / bps
+        group_df['price_to_book'] = pb_ratio.replace([np.inf, -np.inf], np.nan)
+        return group_df
+
 
 
 
