@@ -75,6 +75,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  lempel_ziv_complexity: bool = False,
                  linear_trend_timewise: bool = False,
                  longest_strike_above_mean: bool = False,
+                 longest_strike_below_mean: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -134,6 +135,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param lempel_ziv_complexity: Calculate the Lempel-Ziv complexity of the time series
         :param linear_trend_timewise: Calculate linear trend components (p-value, correlation, intercept, slope, stderr)
         :param longest_strike_above_mean: Calculate the length of the longest consecutive subsequence above the mean
+        :param longest_strike_below_mean: Calculate the length of the longest consecutive subsequence below the mean.
         """
         super().__init__(df)
 
@@ -193,6 +195,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.lempel_ziv_complexity = lempel_ziv_complexity
         self.linear_trend_timewise = linear_trend_timewise
         self.longest_strike_above_mean = longest_strike_above_mean
+        self.longest_strike_below_mean = longest_strike_below_mean
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -259,6 +262,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_lempel_ziv_complexity(group)
         group = self._add_linear_trend_timewise(group)
         group = self._add_longest_strike_above_mean(group)
+        group = self._add_longest_strike_below_mean(group)
 
         return group
 
@@ -1109,6 +1113,19 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
 
+        return group_df
+    
+    def _add_longest_strike_below_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.longest_strike_below_mean:
+            return group_df
+
+        group_df['longest_strike_below_mean'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                max((sum(1 for _ in g) for k, g in itertools.groupby(x < x.mean()) if k), default=np.nan)
+                if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
         return group_df
 
 
