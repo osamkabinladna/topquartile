@@ -70,6 +70,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  fourier_entropy: bool = False,
                  index_mass_quantile: Optional[float] = None,
                  kurtosis: bool = False,
+                 last_location_of_maximum: bool = False,
                  turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -125,6 +126,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param fourier_entropy: Compute Welch power spectral density entropy (Fourier entropy)
         :param index_mass_quantile: Float between 0 and 1, quantile of mass center to compute (e.g., 0.5 = center of mass)
         :param kurtosis: Calculate kurtosis (G2) of the time series
+        :param last_location_of_maximum: Calculate the last relative index of the maximum value in the time series
         """
         super().__init__(df)
 
@@ -180,6 +182,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.fourier_entropy = fourier_entropy
         self.index_mass_quantile = index_mass_quantile
         self.kurtosis = kurtosis
+        self.last_location_of_maximum: bool = False
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -1015,6 +1018,19 @@ class TechnicalCovariateTransform(CovariateTransform):
                     ((len(x) - 1) / ((len(x) - 2) * (len(x) - 3))) *
                     ((len(x) + 1) * ((x - x.mean())**4).mean() / ((x - x.mean())**2).mean()**2 - 3 * (len(x) - 1))
                 ) if len(x.dropna()) >= 4 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+    
+    def _add_last_location_of_maximum(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.last_location_of_maximum:
+            return group_df
+
+        group_df['last_location_of_maximum'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.where(x == x.max())[0][-1] / len(x)
+                if len(x.dropna()) > 0 else np.nan
             ),
             raw=False
         )
