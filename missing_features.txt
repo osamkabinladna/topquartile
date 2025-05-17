@@ -1,3 +1,14 @@
 BS_TOT_ASSET
 IS_EPS
+Book value
+sales
+net profits yoy
+business income
+return on assets
+net income
+return on equity
+shareholder's equity
+market cap
 BS_TOTAL_LIABILITIES
+adjusted close
+
