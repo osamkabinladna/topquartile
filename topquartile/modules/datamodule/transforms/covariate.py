@@ -34,8 +34,10 @@ class TechnicalCovariateTransform(CovariateTransform):
                  macd_histogram: bool = False, obv: bool = False, roc: Optional[List[int]] = None,
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
-                 price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
+                 price_gap: Optional[List[int]] = None,
+                 price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
+                 price_ratio = None,
                  ultimate: bool = False, #TBC KN
                  awesome: bool = False, #TBC KN
                  max_return: Optional[List[int]] = None, #TBC KN
@@ -193,6 +195,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.lempel_ziv_complexity = lempel_ziv_complexity
         self.linear_trend_timewise = linear_trend_timewise
         self.longest_strike_above_mean = longest_strike_above_mean
+        self.price_ratio = price_ratio
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -259,6 +262,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_lempel_ziv_complexity(group)
         group = self._add_linear_trend_timewise(group)
         group = self._add_longest_strike_above_mean(group)
+        group = self._add_price_ratio(group)
 
         return group
 
@@ -311,6 +315,17 @@ class TechnicalCovariateTransform(CovariateTransform):
                 signal = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
                 group_df['macd_histogram'] = group_df['macd'] - signal
 
+        return group_df
+
+    price_ratio = [9]
+
+    def _add_price_ratio(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.price_ratio is not None:
+            for n in self.price_ratio:
+                close_0 = group_df['PX_LAST'].shift(n)
+                close_n = group_df['PX_LAST']
+                group_df[f'momentum_{n}'] = close_0 / close_n
+                group_df[f'reversal_{n}'] = close_n / close_0
         return group_df
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
