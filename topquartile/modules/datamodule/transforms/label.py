@@ -116,6 +116,7 @@ class ExcessReturnTransform(LabelTransform):
             raise TypeError(f"Calculation of NaN count failed. Expected scalar, got {type(nan_count)}. ")
         return aligned_index_returns
 
+
     def transform(self) -> pd.DataFrame:
         df_copy = self.df.copy()
 
@@ -128,8 +129,6 @@ class ExcessReturnTransform(LabelTransform):
 
         if not (ticker_in_index and date_in_index):
             if ticker_in_cols and (current_date_index_name == self.date_level_name or date_in_index):
-                print(
-                    f"INFO: ExcessReturnTransform is setting MultiIndex. Original index: {df_copy.index.names if is_multiindex else [df_copy.index.name]}, Columns: {df_copy.columns.tolist()}")
                 if not is_multiindex and current_date_index_name == self.date_level_name:
                     df_copy = df_copy.set_index([self.ticker_level_name], append=True)
                 elif is_multiindex and date_in_index and not ticker_in_index:
@@ -144,7 +143,6 @@ class ExcessReturnTransform(LabelTransform):
                         raise ValueError(
                             f"Failed to reorder levels to [{self.ticker_level_name}, {self.date_level_name}]. Current levels: {df_copy.index.names}. Error: {e}")
 
-                print(f"INFO: ExcessReturnTransform adjusted index to: {df_copy.index.names}")
             elif not (ticker_in_index and date_in_index):
                 raise ValueError(
                     f"ExcessReturnTransform expects '{self.ticker_level_name}' and '{self.date_level_name}' "
@@ -177,7 +175,6 @@ class ExcessReturnTransform(LabelTransform):
         index_returns_series = self._get_index_returns()
 
         df_copy = df_copy.join(index_returns_series, on=self.date_level_name)
-
         df_copy[self.excess_return_col_name] = df_copy[self.stock_return_col_name] - df_copy[self.index_return_col_name]
 
         return df_copy
@@ -205,6 +202,9 @@ class BinaryLabelTransform(ExcessReturnTransform):
 
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
         """
+        TODO: Current implementation calculates quantiles over all returns before partitions, maybe we want to
+        create a flag to calculate it per partition?
+
         Assigns a binary label based on whether the excess return is in the top quantile.
         Operates on a group (typically grouped by date).
         """
@@ -237,6 +237,90 @@ class BinaryLabelTransform(ExcessReturnTransform):
             )
         else:
             print(f"Warning: DataFrame is not MultiIndexed by '{self.date_level_name}'. ")
+            df_with_excess_returns[self.label_col_name] = self._assign_label(df_with_excess_returns)
+
+        return df_with_excess_returns
+
+
+class NaryLabelTransform(ExcessReturnTransform):
+    """
+    Transforms asset returns into N-ary labels based on quantiles of excess returns.
+    Label 1 represents the highest quantile of excess returns.
+    """
+
+    def __init__(self, df: pd.DataFrame, label_duration: int, n_labels: int,
+                 index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
+                 ticker_level_name: str = 'ticker',
+                 date_level_name: str = 'Dates'):
+        """
+        Initializes the NaryLabelTransform.
+
+        :param df: DataFrame to be transformed.
+        :param label_duration: Asset holding period for return calculation.
+        :param n_labels: The number of distinct labels (groups) to create.
+        :param index_ticker: Ticker of the market index.
+        :param price_column: Column name of the price data.
+        :param ticker_level_name: MultiIndex name for the ticker level.
+        :param date_level_name: MultiIndex name for the date level.
+        """
+        super().__init__(df, label_duration, index_ticker, price_column,
+                         ticker_level_name, date_level_name)
+        if not isinstance(n_labels, int) or n_labels < 1:
+            raise ValueError("n_labels must be a positive integer (>= 1).")
+        self.n_labels = n_labels
+        self.label_col_name = f'n-ary-label'
+
+    def _assign_label(self, group: pd.DataFrame) -> pd.Series:
+        """
+        Assigns an N-ary label based on quantiles of excess returns within a group.
+        Operates on a group (typically grouped by date).
+        Label 1 is for the highest returns.
+
+        :param group: A DataFrame group (e.g., data for a single date).
+        :return: A Series containing the N-ary labels for the group.
+        """
+        labels_series = pd.Series(pd.NA, index=group.index, dtype='Int64')
+
+        valid_returns = group[self.excess_return_col_name].dropna()
+
+        if valid_returns.empty:
+            return labels_series
+
+        try:
+            qcut_labels_raw = pd.qcut(valid_returns, q=self.n_labels, labels=False, duplicates='drop')
+
+            if len(qcut_labels_raw) == 0:
+                return labels_series
+
+            num_actual_bins = qcut_labels_raw.max() + 1
+            final_labels = num_actual_bins - qcut_labels_raw
+
+            labels_series.loc[valid_returns.index] = final_labels
+
+        except ValueError as e:
+            print(f"Warning: Could not assign N-ary labels for a group due to a pd.qcut error: {e}. "
+                  f"Assigning NA to this group's labels.")
+
+        return labels_series.astype('Int64')
+
+    def transform(self) -> pd.DataFrame:
+        """
+        Calculates excess returns using the parent class's transform method.
+        Then, adds an N-ary label column based on the quantiles of these excess returns.
+
+        :return: DataFrame with excess returns and the N-ary label column.
+        """
+        df_with_excess_returns = super().transform()
+
+        if isinstance(df_with_excess_returns.index, pd.MultiIndex) and \
+                self.date_level_name in df_with_excess_returns.index.names:
+            df_with_excess_returns[self.label_col_name] = (
+                df_with_excess_returns.groupby(level=self.date_level_name, group_keys=False)
+                .apply(self._assign_label)
+            )
+        else:
+            print(f"Warning: DataFrame is not MultiIndexed by '{self.date_level_name}' or this level "
+                  f"is not present in the index. Applying N-ary labeling to the entire DataFrame as one group.")
             df_with_excess_returns[self.label_col_name] = self._assign_label(df_with_excess_returns)
 
         return df_with_excess_returns

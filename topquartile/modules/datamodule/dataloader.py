@@ -26,12 +26,14 @@ class DataLoader:
         prediction_length: int = 20,
         partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
         partition_params: Optional[Dict] = None,
+        label_per_partition: bool = False,
     ):
         self.data_id = data_id
         self.covariate_transform_config = covariate_transform or []
         self.label_transform_config = label_transform or []
         self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
         self.prediction_length = prediction_length
+        self.label_per_partition = label_per_partition
 
         if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
             raise ValueError(
@@ -106,17 +108,18 @@ class DataLoader:
             self.data = transformer.transform()
             self.required_covariates.update(transformer.required_base)
 
+        if not self.label_per_partition:
+            for TransformClass, params in self.label_transform_config:
+                if not issubclass(TransformClass, LabelTransform):
+                    raise ValueError(
+                        "Invalid transform in label_transform_config: must subclass LabelTransform"
+                    )
+                print(f" Applying {TransformClass.__name__} with params {params}")
 
-        for TransformClass, params in self.label_transform_config:
-            if not issubclass(TransformClass, LabelTransform):
-                raise ValueError(
-                    "Invalid transform in label_transform_config: must subclass LabelTransform"
-                )
-            print(f" Applying {TransformClass.__name__} with params {params}")
+                expected_price_col = params.get('price_column', 'PX_LAST')
+                transformer = TransformClass(df=self.data, **params)
+                self.data = transformer.transform()
 
-            expected_price_col = params.get('price_column', 'PX_LAST')
-            transformer = TransformClass(df=self.data, **params)
-            self.data = transformer.transform()
         return self.data
 
     def _load_data(self) -> pd.DataFrame:
