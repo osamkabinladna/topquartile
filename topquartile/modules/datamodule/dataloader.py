@@ -25,7 +25,7 @@ class DataLoader:
             cols2drop: Optional[List[str]] = None,
             prediction_length: int = 20,
             partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
-            partition_params: Optional[Dict] = None,
+            partition_kwargs: Optional[Dict] = None,
             label_per_partition: bool = False,
     ):
         self.data_id = data_id
@@ -39,7 +39,7 @@ class DataLoader:
             raise ValueError(
                 "partition_class must inherit from BasePurgedTimeSeriesPartition"
             )
-        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(**(partition_params or {}))
+        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(**(partition_kwargs or {}))
 
         if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
             raise ValueError("partition_class must inherit from BasePurgedTimeSeriesPartition")
