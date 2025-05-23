@@ -18,8 +18,8 @@ class LabelTransform(ABC):
 class ExcessReturnTransform(LabelTransform):
     def __init__(self, df: pd.DataFrame, label_duration: int,
                  index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
-                 ticker_level_name: str = 'ticker',
-                 date_level_name: str = 'Dates'):
+                 ticker_level_name: str = 'TickerIndex',
+                 date_level_name: str = 'DateIndex'):
         """
         :param df: dataframe to be transformed
         :param label_duration: asset holding period for return calculation
@@ -182,8 +182,8 @@ class ExcessReturnTransform(LabelTransform):
 class BinaryLabelTransform(ExcessReturnTransform):
     def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
                  index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
-                 ticker_level_name: str = 'ticker',
-                 date_level_name: str = 'Dates'):
+                 ticker_level_name: str = 'TickerIndex',
+                 date_level_name: str = 'DateIndex'):
         """
         :param df: dataframe to be transformed
         :param label_duration: asset holding period
