@@ -16,27 +16,30 @@ from topquartile.modules.datamodule.partitions import (
 
 class DataLoader:
     def __init__(
-        self,
-        data_id: str,
-        label_transform_class: Optional[Type[LabelTransform]] = None,
-        label_transform_kwargs: Optional[Dict] = None,
-        covariate_transform_class: Optional[Type[CovariateTransform]] = None,
-        covariate_transform_kwargs: Optional[Type[Dict]] = None,
-        partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
-        partition_kwargs: Optional[Dict] = None,
-        prediction_length: int = 20,
-        label_per_partition: bool = False,
+            self,
+            data_id: str,
+            covariate_transform: Optional[
+                List[Tuple[Type[CovariateTransform], Dict]]] = None,
+            label_transform: Optional[
+                List[Tuple[Type[LabelTransform], Dict]]] = None,
+            cols2drop: Optional[List[str]] = None,
+            prediction_length: int = 20,
+            partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
+            partition_params: Optional[Dict] = None,
+            label_per_partition: bool = False,
     ):
         self.data_id = data_id
+        self.covariate_transform_config = covariate_transform or []
+        self.label_transform_config = label_transform or []
+        self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
         self.prediction_length = prediction_length
         self.label_per_partition = label_per_partition
 
-        self.label_transform_class = label_transform_class
-        self.label_transform_kwargs = label_transform_kwargs
-        self.covariate_transform_class = covariate_transform_class
-        self.covariate_transform_kwargs = covariate_transform_kwargs
-        self.partition_class = partition_class
-        self.partition_kwargs = partition_kwargs
+        if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
+            raise ValueError(
+                "partition_class must inherit from BasePurgedTimeSeriesPartition"
+            )
+        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(**(partition_params or {}))
 
         if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
             raise ValueError("partition_class must inherit from BasePurgedTimeSeriesPartition")
