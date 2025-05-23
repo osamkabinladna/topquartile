@@ -18,30 +18,32 @@ class DataLoader:
     def __init__(
         self,
         data_id: str,
-        covariate_transform: Optional[
-            List[Tuple[Type[CovariateTransform], Dict]]] = None,
-        label_transform: Optional[
-            List[Tuple[Type[LabelTransform], Dict]]] = None,
-        cols2drop: Optional[List[str]] = None,
-        prediction_length: int = 20,
+        label_transform_class: Optional[Type[LabelTransform]] = None,
+        label_transform_kwargs: Optional[Dict] = None,
+        covariate_transform_class: Optional[Type[CovariateTransform]] = None,
+        covariate_transform_kwargs: Optional[Type[Dict]] = None,
         partition_class: Type[BasePurgedTimeSeriesPartition] = PurgedTimeSeriesPartition,
-        partition_params: Optional[Dict] = None,
+        partition_kwargs: Optional[Dict] = None,
+        prediction_length: int = 20,
         label_per_partition: bool = False,
     ):
         self.data_id = data_id
-        self.covariate_transform_config = covariate_transform or []
-        self.label_transform_config = label_transform or []
-        self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
         self.prediction_length = prediction_length
         self.label_per_partition = label_per_partition
 
+        self.label_transform_class = label_transform_class
+        self.label_transform_kwargs = label_transform_kwargs
+        self.covariate_transform_class = covariate_transform_class
+        self.covariate_transform_kwargs = covariate_transform_kwargs
+        self.partition_class = partition_class
+        self.partition_kwargs = partition_kwargs
+
         if not issubclass(partition_class, BasePurgedTimeSeriesPartition):
-            raise ValueError(
-                "partition_class must inherit from BasePurgedTimeSeriesPartition"
-            )
-        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(
-            **(partition_params or {})
-        )
+            raise ValueError("partition_class must inherit from BasePurgedTimeSeriesPartition")
+        if partition_kwargs is None:
+            partition_kwargs = {}
+        self.partitioner: BasePurgedTimeSeriesPartition = partition_class(**partition_kwargs)
+
 
         self.data: Optional[pd.DataFrame] = None
         self.tickernames: List[str] = []
@@ -51,7 +53,7 @@ class DataLoader:
         try:
             root_path = Path(__file__).resolve().parent.parent.parent
         except NameError:
-             root_path = Path().resolve().parent.parent.parent
+             root_path = Path().resolve()
 
         self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
 
@@ -73,6 +75,7 @@ class DataLoader:
 
         print(f"Separating last {self.prediction_length} rows per ticker for predictions.")
         self.data = self.data.sort_index()
+
         self.preds = (
             self.data.groupby("ticker", group_keys=False)
             .tail(self.prediction_length)
@@ -85,18 +88,21 @@ class DataLoader:
 
         remaining_index = self.data.index.difference(self.preds.index)
         self.data = self.data.loc[remaining_index]
+
         print(f"Predictions shape: {self.preds.shape}, Remaining data shape: {self.data.shape}")
         return self.preds
 
     def _process_data(self):
         self._load_data()
         self.transform_data()
-        # self._impute_columns()
         print("Data processing complete.")
 
     def transform_data(self):
         if self.data is None:
             self._load_data()
+            if self.data is None: # Still None after trying to load
+                raise ValueError("Data could not be loaded in transform_data.")
+
 
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
@@ -114,12 +120,9 @@ class DataLoader:
                     raise ValueError(
                         "Invalid transform in label_transform_config: must subclass LabelTransform"
                     )
-                print(f" Applying {TransformClass.__name__} with params {params}")
-
-                expected_price_col = params.get('price_column', 'PX_LAST')
+                print(f" Applying {TransformClass.__name__} with params {params} (globally)")
                 transformer = TransformClass(df=self.data, **params)
                 self.data = transformer.transform()
-
         return self.data
 
     def _load_data(self) -> pd.DataFrame:
@@ -128,7 +131,7 @@ class DataLoader:
              if not self.covariates_path.is_file():
                  raise FileNotFoundError(f"Data file not found at {self.covariates_path}")
 
-             ticker_header_df = pd.read_csv(self.covariates_path, nrows=4, header=None) # Read first few rows to find tickers
+             ticker_header_df = pd.read_csv(self.covariates_path, nrows=4, header=None)
              ticker_row_index = 3
              for i, row in enumerate(ticker_header_df.values):
                  if any(':' in str(cell) for cell in row if pd.notna(cell)):
@@ -149,6 +152,7 @@ class DataLoader:
         covariates.dropna(inplace=True, axis=0, how="all")
         covariates.dropna(inplace=True, axis=1, how="all")
         covariates.index = pd.to_datetime(covariates.index, errors='coerce', format='mixed')
+        covariates = covariates[covariates.index.notna()]
 
         num_tickers = len(raw_tickernames)
         print(f"Found {num_tickers} raw ticker names.")
@@ -159,13 +163,14 @@ class DataLoader:
             if number < num_tickers :
                  col_dict[number].append(col)
 
-        covlist: list[pd.DataFrame] = [pd.DataFrame(index=covariates.index) for _ in range(num_tickers)]
+        covlist: list[pd.DataFrame] = [pd.DataFrame(index=covariates.index.copy()) for _ in range(num_tickers)]
+
 
         for number in range(num_tickers):
-            cols = col_dict.get(number, [])
-            if cols:
-                df_part = covariates[cols].copy()
-                df_part.columns = [self._get_base_col_name(col) for col in cols]
+            cols_for_ticker = col_dict.get(number)
+            if cols_for_ticker:
+                df_part = covariates[cols_for_ticker].copy()
+                df_part.columns = [self._get_base_col_name(col) for col in cols_for_ticker]
                 covlist[number] = df_part
 
         processed_tickernames = [re.sub(r'\s.*', '', ticker).strip() for ticker in raw_tickernames]
@@ -196,26 +201,23 @@ class DataLoader:
              self.data = pd.concat(final_covlist)
              self.data['ticker'] = self.data['ticker'].astype('category')
              self.data.sort_index(inplace=True)
-
+        if self.data.empty:
+            print("Warning: Data is empty after loading and initial processing.")
         return self.data
 
     def _get_base_col_name(self, col_name: str) -> str:
          return str(col_name).split('.')[0]
 
     def _get_number(self, col_name: str) -> int:
-        """
-        thank you chat gpt, i could never in a million years figure out how to do this
-        """
         match = re.match(r"^(.*?)(?:\.(\d+))?$", str(col_name))
         if match and match.group(2) is not None:
             try:
                 return int(match.group(2))
             except ValueError:
-                return 0
-        return 0
+                return -1
+        return -1
 
     def _impute_columns(self):
-        #TODO: Refactor this to just specify which original columns to use and throw away the rest
         print("Imputing/dropping columns based on missingness...")
         if self.data is None or self.data.empty:
             print("No data to impute.")
@@ -224,7 +226,7 @@ class DataLoader:
         valid_required_covariates = [col for col in self.required_covariates if col in self.data.columns]
         if not valid_required_covariates:
             print("Warning: No required covariates found in data for imputation thresholding.")
-            missing_value_threshold = len(self.data) # Set threshold high to avoid dropping based on this
+            missing_value_threshold = len(self.data)
         else:
              max_missing_in_required = self.data[valid_required_covariates].isna().sum().max()
              missing_value_threshold = max_missing_in_required
@@ -237,7 +239,7 @@ class DataLoader:
 
         final_cols_to_drop = [
              col for col in combined_cols_to_drop
-             if col in self.data.columns and col not in self.required_covariates or col in self.cols2drop
+             if col in self.data.columns and (col not in self.required_covariates or col in self.cols2drop)
         ]
 
 
@@ -247,6 +249,8 @@ class DataLoader:
              print(f" Explicitly dropping columns: {self.cols2drop}")
 
         if final_cols_to_drop:
+            if 'ticker' in final_cols_to_drop:
+                final_cols_to_drop.remove('ticker')
             print(f" Final columns to drop: {final_cols_to_drop}")
             self.data = self.data.drop(columns=final_cols_to_drop, errors="ignore")
             print(f"Data shape after dropping columns: {self.data.shape}")
@@ -266,58 +270,124 @@ class DataLoader:
                  print("Data is still empty after processing. Cannot partition.")
                  return []
 
-
-        print(f"Partitioning data using {self.partitioner.__class__.__name__} with {self.partitioner.n_splits} splits.")
         self.data = self.data.sort_index()
+        self.data.index.set_names('TickerIndex', level='ticker', inplace=True)
+        self.data.index.set_names('DateIndex', level='Dates', inplace=True)
 
+        n_splits = self.partitioner.get_n_splits()
         fold_buckets = [
-            {"train": [], "test": []} for _ in range(self.partitioner.n_splits)
+            {"train": [], "test": []} for _ in range(n_splits)
         ]
 
         data_grouped_by_ticker = self.data.groupby("ticker")
-        print(f"Found {len(data_grouped_by_ticker)} tickers for partitioning.")
+        print(f"Partitioning data using {self.partitioner.__class__.__name__} for {n_splits} splits across {len(data_grouped_by_ticker)} tickers.")
 
         for ticker, df_ticker in data_grouped_by_ticker:
             df_ticker = df_ticker.sort_index()
 
-            if len(df_ticker) < self.partitioner.n_splits:
-                 warnings.warn(f"Ticker {ticker} has only {len(df_ticker)} rows, fewer than n_splits={self.partitioner.n_splits}. Skipping this ticker for partitioning.")
-                 continue
+            min_samples_for_splitter = n_splits
+            if isinstance(self.partitioner, PurgedTimeSeriesPartition) and self.partitioner.test_size is not None:
+                min_samples_for_splitter = self.partitioner.test_size * n_splits + self.partitioner.gap * (n_splits -1)
+                if self.partitioner.max_train_size is not None:
+                     min_samples_for_splitter = max(min_samples_for_splitter, self.partitioner.test_size + self.partitioner.gap + 1)
 
+
+            if len(df_ticker) < min_samples_for_splitter :
+                 warnings.warn(
+                     f"Ticker {ticker} has only {len(df_ticker)} rows. "
+                     f"This might be too short for {n_splits} splits with current settings. Skipping or may result in fewer splits."
+                 )
+
+
+            groups = None
             if isinstance(self.partitioner, PurgedGroupTimeSeriesPartition):
+                if not isinstance(df_ticker.index, pd.DatetimeIndex):
+                    warnings.warn(f"Ticker {ticker} index is not DatetimeIndex. Cannot generate groups for PurgedGroupTimeSeriesPartition. Skipping ticker.")
+                    continue
                 groups = df_ticker.index.normalize()
+                if len(groups) == 0:
+                    warnings.warn(f"Ticker {ticker} resulted in 0 groups. Skipping ticker for PurgedGroupTimeSeriesPartition.")
+                    continue
                 print(f" Using date groups for ticker {ticker} with PurgedGroupTimeSeriesPartition.")
-            else:
-                groups = None # Standard time series split doesn't need explicit groups
+
 
             try:
-                splits = list(self.partitioner.split(df_ticker, groups=groups))
-                if len(splits) != self.partitioner.n_splits:
+                ticker_splits = list(self.partitioner.split(X=df_ticker, groups=groups))
+
+                if not ticker_splits:
+                    warnings.warn(f"Ticker {ticker} produced no splits. This might be due to short series or partitioner settings. Skipping this ticker.")
+                    continue
+
+                if len(ticker_splits) != n_splits:
                      warnings.warn(
-                         f"Ticker {ticker} produced {len(splits)} splits but partitioner is configured for {self.partitioner.n_splits}. This might happen with short series or large purge/embargo values."
-                         )
-                     if not splits: continue
+                         f"Ticker {ticker} produced {len(ticker_splits)} splits, but partitioner is configured for {n_splits} splits. "
+                         f"This can happen with short series or specific purge/embargo settings. Folds will be constructed with available splits."
+                     )
 
-                for fold_id, (train_idx, test_idx) in enumerate(splits):
-                     if fold_id >= self.partitioner.n_splits: break # Ensure we don't exceed bucket count
+                for fold_id, (train_idx, test_idx) in enumerate(ticker_splits):
+                     if fold_id >= n_splits:
+                         break
 
-                     # Check if indices are valid before iloc
-                     if train_idx.size > 0 and test_idx.size > 0:
-                          fold_buckets[fold_id]["train"].append(df_ticker.iloc[train_idx])
-                          fold_buckets[fold_id]["test"].append(df_ticker.iloc[test_idx])
+                     if train_idx.size == 0 or test_idx.size == 0:
+                         warnings.warn(f"Ticker {ticker}, fold {fold_id} resulted in empty train or test set. Skipping this part.")
+                         continue
 
-            except Exception as e:
-                 warnings.warn(f"Error partitioning ticker {ticker}: {e}. Skipping this ticker.")
+                     train_df_part = df_ticker.iloc[train_idx].copy()
+                     test_df_part = df_ticker.iloc[test_idx].copy()
+
+                     if self.label_per_partition and self.label_transform_config:
+                         current_train_data = train_df_part
+                         for TransformClass, params in self.label_transform_config:
+                             if not issubclass(TransformClass, LabelTransform):
+                                 raise ValueError("Invalid transform in label_transform_config.")
+                             transformer = TransformClass(df=current_train_data, **params)
+                             current_train_data = transformer.transform()
+                         train_df_part = current_train_data
+
+                         current_test_data = test_df_part
+                         for TransformClass, params in self.label_transform_config:
+                             if not issubclass(TransformClass, LabelTransform):
+                                 raise ValueError("Invalid transform in label_transform_config.")
+                             transformer = TransformClass(df=current_test_data, **params)
+                             current_test_data = transformer.transform()
+                         test_df_part = current_test_data
+
+                     fold_buckets[fold_id]["train"].append(train_df_part)
+                     fold_buckets[fold_id]["test"].append(test_df_part)
+
+            except ValueError as ve:
+                 warnings.warn(f"Error partitioning ticker {ticker}: {ve}. Skipping this ticker.")
                  continue
+            except Exception as e:
+                 warnings.warn(f"Unexpected error partitioning ticker {ticker}: {e}. Skipping this ticker.")
+                 continue
+
 
         cv_folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
         for fold_id, bucket in enumerate(fold_buckets):
             if bucket["train"] and bucket["test"]:
-                train_df = pd.concat(bucket["train"]).sort_index()
-                test_df = pd.concat(bucket["test"]).sort_index()
-                cv_folds.append((train_df, test_df))
+                train_df_fold = pd.concat(bucket["train"]).sort_index()
+                test_df_fold = pd.concat(bucket["test"]).sort_index()
+                cv_folds.append((train_df_fold, test_df_fold))
+                print(f"Fold {fold_id}: Train shape {train_df_fold.shape}, Test shape {test_df_fold.shape}")
             else:
-                 print(f" Fold {fold_id} skipped as it contained no data after processing all tickers.")
+                 warnings.warn(f"Fold {fold_id} will be skipped as it contained no data after processing all tickers.")
 
-        print(f"Partitioning complete. Generated {len(cv_folds)} folds.")
+        if not cv_folds:
+            warnings.warn("Partitioning did not result in any valid CV folds. Check data length, ticker data, and partitioner settings.")
+
+        print(f"Partitioning complete. Generated {len(cv_folds)} CV folds.")
         return cv_folds
+
+    def get_cv_folds(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
+        """
+        Method to get cross-validation folds.
+        Ensures data is processed and then partitioned.
+        """
+        if self.data is None:
+            print("Data not yet processed. Processing now...")
+            self._process_data()
+            if self.data is None or self.data.empty:
+                 raise ValueError("Data could not be loaded or is empty after processing, cannot generate folds.")
+
+        return self._partition_data()
