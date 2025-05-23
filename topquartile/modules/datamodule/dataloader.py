@@ -97,10 +97,10 @@ class DataLoader:
 
     def _process_data(self):
         self._load_data()
-        self.transform_data()
+        self.transform_covariates()
         print("Data processing complete.")
 
-    def transform_data(self):
+    def transform_covariates(self):
         if self.data is None:
             self._load_data()
             if self.data is None: # Still None after trying to load
@@ -127,6 +127,18 @@ class DataLoader:
                 transformer = TransformClass(df=self.data, **params)
                 self.data = transformer.transform()
         return self.data
+
+    def transform_labels(self, df: pd.DataFrame) -> pd.DataFrame:
+        if not self.label_per_partition:
+            for TransformClass, params in self.label_transform_config:
+                if not issubclass(TransformClass, LabelTransform):
+                    raise ValueError(
+                        "Invalid transform in label_transform_config: must subclass LabelTransform"
+                    )
+                print(f" Applying {TransformClass.__name__} with params {params} (globally)")
+                transformer = TransformClass(df=df, **params)
+                df = transformer.transform()
+        return df
 
     def _load_data(self) -> pd.DataFrame:
         print(f"Reading data from: {self.covariates_path}")
