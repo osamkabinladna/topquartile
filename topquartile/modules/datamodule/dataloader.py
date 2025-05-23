@@ -89,14 +89,14 @@ class DataLoader:
         return self.preds
 
     def _process_data(self):
+        self._load_data()
         self.transform_data()
-        self._impute_columns()
+        # self._impute_columns()
         print("Data processing complete.")
 
     def transform_data(self):
         if self.data is None:
             self._load_data()
-
 
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
@@ -289,7 +289,6 @@ class DataLoader:
                 print(f" Using date groups for ticker {ticker} with PurgedGroupTimeSeriesPartition.")
             else:
                 groups = None # Standard time series split doesn't need explicit groups
-
 
             try:
                 splits = list(self.partitioner.split(df_ticker, groups=groups))
