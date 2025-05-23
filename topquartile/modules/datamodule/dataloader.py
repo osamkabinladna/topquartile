@@ -217,47 +217,6 @@ class DataLoader:
                 return -1
         return -1
 
-    def _impute_columns(self):
-        print("Imputing/dropping columns based on missingness...")
-        if self.data is None or self.data.empty:
-            print("No data to impute.")
-            return
-
-        valid_required_covariates = [col for col in self.required_covariates if col in self.data.columns]
-        if not valid_required_covariates:
-            print("Warning: No required covariates found in data for imputation thresholding.")
-            missing_value_threshold = len(self.data)
-        else:
-             max_missing_in_required = self.data[valid_required_covariates].isna().sum().max()
-             missing_value_threshold = max_missing_in_required
-
-
-        missing_value_all = self.data.isna().sum()
-        columns_to_drop_missingness = missing_value_all[missing_value_all > missing_value_threshold].index.tolist()
-
-        combined_cols_to_drop = list(set(columns_to_drop_missingness + self.cols2drop))
-
-        final_cols_to_drop = [
-             col for col in combined_cols_to_drop
-             if col in self.data.columns and (col not in self.required_covariates or col in self.cols2drop)
-        ]
-
-
-        if columns_to_drop_missingness:
-             print(f" Columns with missingness > threshold ({missing_value_threshold}): {columns_to_drop_missingness}")
-        if self.cols2drop:
-             print(f" Explicitly dropping columns: {self.cols2drop}")
-
-        if final_cols_to_drop:
-            if 'ticker' in final_cols_to_drop:
-                final_cols_to_drop.remove('ticker')
-            print(f" Final columns to drop: {final_cols_to_drop}")
-            self.data = self.data.drop(columns=final_cols_to_drop, errors="ignore")
-            print(f"Data shape after dropping columns: {self.data.shape}")
-        else:
-            print("No columns dropped based on missingness criteria or explicit list.")
-
-
     def _partition_data(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         if self.data is None or self.data.empty:
             print("Data not available for partitioning. Attempting to process...")
