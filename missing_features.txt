@@ -22,12 +22,14 @@ PX_LOW
 PX_CLOSE
 VOLUME
 TURNOVER
+IHSG price (as the first column after dates kalau bisa)
 
-di excel yg berbeda
+
+di excel yg berbeda - macro indicators
 -------------------
+VIX Index
 10Y Indonesian Government Bond Yield
 Analog fed rate (maybe BI 7-day reverse repo rate)
 Indonesian CPI (YoY)
 IDR/USD exchange rate
-DXY, USD_TWI
 analog dollar index for indonesia?
