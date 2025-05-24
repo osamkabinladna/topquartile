@@ -1,8 +1,13 @@
 import pandas as pd
 import numpy as np
 
-class Evaluation():
+class Evaluation:
     def __init__(self, df: pd.DataFrame,  n_train: int = 252, n_valid: int = 1):
+        """
+        :param df: first fold on the dataloader
+        :param n_train: number of training days
+        :param n_valid: number of prediction days (i know i named it valid lol)
+        """
         self.n_train = n_train
         self.n_valid = n_valid
         self.df = df
@@ -10,7 +15,7 @@ class Evaluation():
 
         self.df.sort_index()
 
-    def partition_data(self):
+    def partition_data(self) -> pd.DataFrame:
         results = []
 
         all_unique_dates = self.df.index.get_level_values('DateIndex').unique().sort_values()
@@ -35,10 +40,10 @@ class Evaluation():
                 if current_train_candidate.empty or current_test_candidate.empty:
                     continue
 
-                train_counts = current_train_candidate.groupby(level='TickerIndex').size()
+                train_counts = current_train_candidate.groupby(level='TickerIndex', observed=False).size()
                 valid_train_tickers = train_counts[train_counts == self.n_train].index
 
-                test_counts = current_test_candidate.groupby(level='TickerIndex').size()
+                test_counts = current_test_candidate.groupby(level='TickerIndex', observed=False).size()
                 valid_test_tickers = test_counts[test_counts == self.n_valid].index
 
                 common_valid_tickers = valid_train_tickers.intersection(valid_test_tickers)
