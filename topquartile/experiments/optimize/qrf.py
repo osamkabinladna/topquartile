@@ -1,40 +1,29 @@
-from xgboost import XGBClassifier
+from quantile_forest import RandomForestQuantileRegressor
 import joblib
 import pandas as pd
 import wandb
 from sklearn.metrics import classification_report
 from pathlib import Path
-from wandb.integration.xgboost import WandbCallback
 
-cwd = Path.cwd()
-data_path = cwd.parent.parent / 'data' / 'label_60'
-
-x_train = pd.read_csv(data_path / 'train_niuw.csv', index_col=0)
-x_valid = pd.read_csv(data_path / 'test_niuw.csv', index_col=0)
+from topquartile.modules.datamodule.dataloader import DataLoader
+from topquartile.modules.datamodule.transforms.covariate import (TechnicalCovariateTransform, FundamentalCovariateTransform)
+from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform
+from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
 
-object_cols_train = x_train.select_dtypes(include=['object']).columns.tolist()
-object_cols_valid = x_valid.select_dtypes(include=['object']).columns.tolist()
+covariate_dict = dict(ema = [10,20,30],
+                      sma = [10,20,30],
+                      volatility = [10,20,30])
 
-def convert_columns_to_numeric(df, columns):
-    for col in columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+covariate_config = [(TechnicalCovariateTransform, covariate_dict)]
+label_dict = dict(label_duration = 30, quantile = 0.75])
+label_config = [(BinaryLabelTransform, label_dict)]
+partition_dict = dict(n_splits = 5, max_train_size=10,test_size= 60,
+                      gap = 20,)
 
-convert_columns_to_numeric(x_train, object_cols_train)
-convert_columns_to_numeric(x_valid, object_cols_valid)
-
-# Separate target variable
-y_train = x_train['TOP_QUANTILE']
-x_train = x_train.drop(['TOP_QUANTILE', 'Ticker'], axis=1)
-
-y_valid = x_valid['TOP_QUANTILE']
-x_valid = x_valid.drop(['TOP_QUANTILE', 'Ticker'], axis=1)
-
-rfecv = joblib.load(data_path / 'rfecv.joblib')
-print("X_TRAIN", x_train.columns)
-print("X_VALID", x_valid.columns)
-x_train = rfecv.transform(x_train)
-x_valid = rfecv.transform(x_valid.drop(['PCT_CHANGE'], axis=1))
+dataloader = DataLoader(data_id='dec2024', covariate_transform = covariate_config,
+                        label_transform=label_config, partition_class = PurgedTimeSeriesPartition,
+                        partition_kwargs=partition_dict)
 
 sweep_config = {
     'method': 'bayes',
