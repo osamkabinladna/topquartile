@@ -73,3 +73,34 @@ def train_xgb(config=None):
             'random_state': 42,
             'n_jobs': -1,
         }
+        
+        fit_params = {
+            'eval_set': [(x_valid, y_valid)],
+        }
+
+        bst = XGBClassifier(**model_params)
+
+        bst.fit(
+            x_train, y_train,
+            **fit_params
+        )
+
+        eval_results = bst.evals_result()
+
+        best_iteration = bst.best_iteration
+        best_aucpr = eval_results['validation_0']['aucpr'][best_iteration]
+        wandb.log({'best_aucpr': best_aucpr, 'best_iteration': best_iteration})
+
+        y_pred_probs = bst.predict_proba(x_valid)[:, 1]
+        y_pred_binary = [1 if pred > 0.5 else 0 for pred in y_pred_probs]
+
+        wandb.log({"classification_report": classification_report(y_valid, y_pred_binary, output_dict=True)})
+
+
+resume = False
+if resume:
+    sweep_id = "your_sweep_id"
+else:
+    sweep_id = wandb.sweep(sweep_config, project="xgboost-trainsmol")
+
+wandb.agent(sweep_id, function=train_xgb, count=100)
