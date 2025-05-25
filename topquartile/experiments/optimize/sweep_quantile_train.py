@@ -81,7 +81,7 @@ def objective(trial):
 
         model.fit(X_train.values, y_train.values)
 
-        # median forecast → quantile .50
+
         y_pred50 = model.predict(X_test.values, quantiles=[0.5])
         rmse = np.sqrt(mean_squared_error(y_test, y_pred50))
         rmse_scores.append(rmse)
@@ -91,10 +91,10 @@ def objective(trial):
     return avg_rmse
 
 
-# ----------- Bayesian optimisation ----------
+
 study = optuna.create_study(
     direction="minimize",
-    sampler=optuna.samplers.TPESampler(seed=42),   # Bayesian / TPE
+    sampler=optuna.samplers.TPESampler(seed=42),   
 )
 study.optimize(objective, n_trials=30, show_progress_bar=True)
 
