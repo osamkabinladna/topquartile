@@ -48,3 +48,28 @@ sweep_config = {
         'scale_pos_weight': {'min': 8.0, 'max': 10.0},
     }
 }
+def train_xgb(config=None):
+    with wandb.init(config=config):
+        config = wandb.config
+
+        model_params = {
+            'objective': 'binary:logistic',
+            'eval_metric': 'aucpr',
+            'early_stopping_rounds': 200,
+            'callbacks': [WandbCallback(log_model=False, log_feature_importance=True, define_metric=True)],
+            'learning_rate': config.learning_rate,
+            'max_depth': int(config.max_depth),
+            'max_bin': int(config.max_bin),
+            'min_child_weight': config.min_child_weight,
+            'gamma': config.gamma,
+            'subsample': config.subsample,
+            'n_estimators': config.n_estimators,
+            'colsample_bytree': config.colsample_bytree,
+            'colsample_bylevel': config.colsample_bylevel,
+            'reg_alpha': config.reg_alpha,
+            'grow_policy': config.grow_policy,
+            'reg_lambda': config.reg_lambda,
+            'scale_pos_weight': config.scale_pos_weight,
+            'random_state': 42,
+            'n_jobs': -1,
+        }
