@@ -91,10 +91,10 @@ def objective(trial):
     return avg_rmse
 
 
-# ----------- Bayesian optimisation ----------
+
 study = optuna.create_study(
     direction="minimize",
-    sampler=optuna.samplers.TPESampler(seed=42),   # Bayesian / TPE
+    sampler=optuna.samplers.TPESampler(seed=42),   
 )
 study.optimize(objective, n_trials=30, show_progress_bar=True)
 
