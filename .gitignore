@@ -10,6 +10,10 @@ topquartile/data/
 topquartile/topquartile/data
 .fleet/
 
+# Wandb
+wandb/
+.wandb/
+
 # C extensions
 *.so
 
