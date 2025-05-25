@@ -1,6 +1,5 @@
 import os
 import optuna
-import wandb
 import numpy as np
 import pandas as pd
 
@@ -57,15 +56,13 @@ def objective(trial):
         "max_features": trial.suggest_float("max_features", 0.3, 1.0),
     }
 
-    # every Optuna trial gets its own W&B run
-    wandb_run = wandb.init(project="quantile-sweep-rmse", config=params)
 
     rmse_scores = []
     for fold_id, (train, test) in enumerate(folds):
         # drop rows created by label/covariate lagging
         train, test = train.dropna(), test.dropna()
 
-        target = "EXCESS RETURN"           # <-- exact spelling the prof asked for
+        target = "EXCESS_RETURN"           # <-- exact spelling the prof asked for
         drop_cols = [target, "label", "INDEX_RETURN", "30d_stock_return", "ticker"]
 
         X_train = train.drop(columns=drop_cols, errors="ignore")
@@ -85,13 +82,11 @@ def objective(trial):
         model.fit(X_train.values, y_train.values)
 
         # median forecast → quantile .50
-        y_pred50 = model.predict(X_test.values, quantiles=[0.5])[:, 0]
+        y_pred50 = model.predict(X_test.values, quantiles=[0.5])
         rmse = np.sqrt(mean_squared_error(y_test, y_pred50))
         rmse_scores.append(rmse)
 
     avg_rmse = float(np.mean(rmse_scores))
-    wandb_run.log({"avg_rmse": avg_rmse})
-    wandb_run.finish()
 
     return avg_rmse
 
