@@ -1,0 +1,35 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        m: []
+        python_version: 3.13.3
+        t:
+            "1":
+                - 5
+                - 35
+                - 53
+                - 55
+            "2":
+                - 5
+                - 35
+                - 53
+                - 55
+            "3":
+                - 2
+                - 16
+                - 23
+                - 55
+            "4": 3.13.3
+            "5": 0.19.11
+            "8":
+                - 5
+            "12": 0.19.11
+            "13": darwin-arm64
+max_depth:
+    value: 6
+max_features:
+    value: 0.6287217772280875
+min_samples_leaf:
+    value: 2
+n_estimators:
+    value: 339
