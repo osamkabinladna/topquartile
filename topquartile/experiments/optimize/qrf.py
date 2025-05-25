@@ -1,5 +1,3 @@
-
-
 from quantile_forest import RandomForestQuantileRegressor
 import joblib
 import pandas as pd
@@ -16,6 +14,7 @@ from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 covariate_dict = dict(ema = [10,20,30],
                       sma = [10,20,30],
                       volatility = [10,20,30])
+
 
 covariate_config = [(TechnicalCovariateTransform, covariate_dict)]
 label_dict = dict(label_duration = 30, quantile = 0.75])
@@ -49,7 +48,6 @@ sweep_config = {
         'scale_pos_weight': {'min': 8.0, 'max': 10.0},
     }
 }
-
 def train_xgb(config=None):
     with wandb.init(config=config):
         config = wandb.config
@@ -75,7 +73,7 @@ def train_xgb(config=None):
             'random_state': 42,
             'n_jobs': -1,
         }
-
+        
         fit_params = {
             'eval_set': [(x_valid, y_valid)],
         }
