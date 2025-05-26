@@ -1,0 +1,28 @@
+method: bayes
+metric:
+  name: avg_rmse
+  goal: minimize
+
+parameters:
+  n_estimators:
+    distribution: int_uniform
+    min: 100
+    max: 500
+  max_depth:
+    distribution: int_uniform
+    min: 5
+    max: 20
+  min_samples_leaf:
+    distribution: int_uniform
+    min: 1
+    max: 10
+  max_features:
+    distribution: uniform
+    min: 0.3
+    max: 1.0
+
+command:
+  - ${env}
+  - python
+  - -m
+  - topquartile.experiments.optimize.qrf_wandb
