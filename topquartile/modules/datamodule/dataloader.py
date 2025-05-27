@@ -13,6 +13,9 @@ from topquartile.modules.datamodule.partitions import (
     PurgedGroupTimeSeriesPartition,
 )
 
+import warnings
+warnings.filterwarnings("ignore", category=pd.errors.DtypeWarning)
+
 
 class DataLoader:
     def __init__(
@@ -53,13 +56,14 @@ class DataLoader:
         self.preds: Optional[pd.DataFrame] = None
 
         try:
-            root_path = Path(__file__).resolve().parent.parent.parent
+            self.root_path = Path(__file__).resolve().parent.parent.parent
         except NameError:
-            root_path = Path().resolve().parent.parent.parent
+            self.root_path = Path().resolve().parent.parent.parent
 
-        self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
+        self.covariates_path = self.root_path / "data" / f"{self.data_id}.csv"
 
     def load_preds(self) -> pd.DataFrame:
+        # TODO: Revise this for later prediction
         if self.data is None:
             print("Data not loaded. Processing data...")
             try:
@@ -153,15 +157,13 @@ class DataLoader:
                 print(
                     f"Standardized self.data index to MultiIndex: {self.data.index.names} for global label transform.")
 
-            self.data.index = self.data.index.set_names(['TickerIndex', 'DateIndex'])
-
             for TransformClass, params in self.label_transform_config:
                 if not issubclass(TransformClass, LabelTransform):
                     raise ValueError(
                         "Invalid transform in label_transform_config: must subclass LabelTransform"
                     )
                 print(f" Applying {TransformClass.__name__} with params {params} (globally)")
-                transformer = TransformClass(df=self.data, **params)
+                transformer = TransformClass(df=self.data, root_path=self.root_path, **params)
                 self.data = transformer.transform()
 
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
@@ -422,3 +424,4 @@ class DataLoader:
                 raise ValueError("Data could not be loaded or is empty after processing, cannot generate folds.")
 
         return self._partition_data()
+#%%
