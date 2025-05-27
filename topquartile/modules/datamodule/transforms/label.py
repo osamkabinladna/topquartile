@@ -241,24 +241,24 @@ class BinaryLabelTransform(ExcessReturnTransform):
 
         return df_with_excess_returns
     
-    class BinaryLabelTransformWrapper:
-        def __init__(self, label_duration=20, quantile=0.9, index_ticker="^JKSE", price_column="PX_LAST",
-                     ticker_level_name="ticker", date_level_name="Dates"):
-            self.label_duration = label_duration
-            self.quantile = quantile
-            self.index_ticker = index_ticker
-            self.price_column = price_column
-            self.ticker_level_name = ticker_level_name
-            self.date_level_name = date_level_name
+class BinaryLabelTransformWrapper:
+    def __init__(self, label_duration=20, quantile=0.9, index_ticker="^JKSE", price_column="PX_LAST",
+                 ticker_level_name="ticker", date_level_name="Dates"):
+        self.label_duration = label_duration
+        self.quantile = quantile
+        self.index_ticker = index_ticker
+        self.price_column = price_column
+        self.ticker_level_name = ticker_level_name
+        self.date_level_name = date_level_name
 
-        def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-            transformer = BinaryLabelTransform(
-                df=df,
-                label_duration=self.label_duration,
-                quantile=self.quantile,
-                index_ticker=self.index_ticker,
-                price_column=self.price_column,
-                ticker_level_name=self.ticker_level_name,
-                date_level_name=self.date_level_name
-            )
-            return transformer.transform()
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        transformer = BinaryLabelTransform(
+            df=df,
+            label_duration=self.label_duration,
+            quantile=self.quantile,
+            index_ticker=self.index_ticker,
+            price_column=self.price_column,
+            ticker_level_name=self.ticker_level_name,
+            date_level_name=self.date_level_name
+        )
+        return transformer.transform()
