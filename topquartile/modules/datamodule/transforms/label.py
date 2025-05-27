@@ -47,23 +47,26 @@ class ExcessReturnTransform(LabelTransform):
         return returns
 
     def _get_index_returns(self) -> pd.Series:
-        self.ihsg = pd.read_csv(self.root_path / 'data' / f"{self.index_csv}.csv")
-        ihsg.index = pd.to_datetime(ihsg.index)
+        self.ihsg = pd.read_csv(self.root_path / 'data' / f"{self.index_csv}.csv", index_col=0)
+        self.ihsg.index = pd.to_datetime(self.ihsg.index)
         return self.ihsg
 
     def transform(self) -> pd.DataFrame:
         df_copy = self.df.copy()
         ihsg = self._get_index_returns()
 
+        print('ihsg index', ihsg.index)
+        print('df index', df_copy.index)
+
         index_returns = (
-            _calculate_returns(ihsg_px['PX_LAST'], self.label_duration)
+            self._calculate_returns(ihsg['PX_LAST'])
             .rename(f'index_returns_{self.label_duration}')
         )
 
         eq_returns = (
             df_copy
-            .groupby(level='ticker')['PX_LAST']
-            .apply(self.calculate_returns)
+            .groupby(level='ticker', group_keys=False)['PX_LAST']
+            .apply(self._calculate_returns)
             .rename(f'eq_returns_{self.label_duration}')
         )
 
@@ -72,7 +75,6 @@ class ExcessReturnTransform(LabelTransform):
             .index
             .get_level_values('Dates')
             .map(index_returns)
-
         )
 
         df_copy[eq_returns.name] = eq_returns
