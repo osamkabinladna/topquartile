@@ -38,7 +38,7 @@ class ExcessReturnTransform(LabelTransform):
 
         self.stock_return_col_name = f'{self.label_duration}d_stock_return'
         self.index_return_col_name = 'INDEX_RETURN'
-        self.excess_return_col_name = 'EXCESS_RETURN'
+        self.excess_return_col_name = f'excess_returns_{self.label_duration}'
 
     def _calculate_returns(self, series: pd.Series) -> pd.Series:
         """Calculates forward looking percentage returns over a future period."""
@@ -55,9 +55,6 @@ class ExcessReturnTransform(LabelTransform):
         df_copy = self.df.copy()
         ihsg = self._get_index_returns()
 
-        print('ihsg index', ihsg.index)
-        print('df index', df_copy.index)
-
         index_returns = (
             self._calculate_returns(ihsg['PX_LAST'])
             .rename(f'index_returns_{self.label_duration}')
@@ -65,7 +62,7 @@ class ExcessReturnTransform(LabelTransform):
 
         eq_returns = (
             df_copy
-            .groupby(level='ticker', group_keys=False)['PX_LAST']
+            .groupby(level='ticker', group_keys=False, observed=False)['PX_LAST']
             .apply(self._calculate_returns)
             .rename(f'eq_returns_{self.label_duration}')
         )
