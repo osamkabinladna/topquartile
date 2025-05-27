@@ -79,5 +79,5 @@ def main() -> None:
     parent.summary["avg_rmse"] = avg_rmse
     parent.finish()
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
