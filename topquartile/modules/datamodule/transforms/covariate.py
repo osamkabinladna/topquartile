@@ -203,6 +203,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             self.required_base.update('VOLUME')
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
+        print('THIS IS COLUMNS', self.df.columns)
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
