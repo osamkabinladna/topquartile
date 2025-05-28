@@ -167,9 +167,9 @@ class DataLoader:
                 self.data = transformer.transform()
 
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
-            self.data = self._ffill_covariates()
-            self.data = self._fill_dividends()
-            self.data = self.data.replace('#NAME?', np.nan)
+            self._ffill_covariates()
+            self._fill_dividends()
+            # self.data = self.data.replace('#NAME?', np.nan)
             self.data = self.data.apply(pd.to_numeric, errors='ignore')
 
         return self.data
@@ -289,16 +289,23 @@ class DataLoader:
         Bloomberg gives NaNs for non dividend paying companies,
         it should be zero instead
         """
+        # TODO: NOT WORKING FOR NOW LETS JUST IMPUTE THIS COLUMN
         df_copy = self.data.copy()
-        col = 'DVD_SH_12M'
+        # col = 'DVD_SH_12M'
+        #
+        # zero_div_tickers = (
+        #     df_copy[col]
+        #     .groupby(level='ticker', observed=False)
+        #     .apply(lambda s: s.isna().all())
+        # )
+        # zero_div_tickers = zero_div_tickers[zero_div_tickers].index
+        # print('ZERO DIV TICKERS', zero_div_tickers)
+        #
+        # for ticker in zero_div_tickers:
+        #     df_copy.loc[pd.IndexSlice[ticker, :], col] = 0.0
 
-        zero_div = (
-            df_copy[col]
-            .groupby(level='ticker', observed=False)
-            .transform(lambda s: s.isna().all())
-        )
+        df_copy.drop(['DVD_SH_12M'], axis=1, inplace=True)
 
-        df_copy.loc[zero_div, col] = 0.0
         self.data = df_copy
         return df_copy
 
