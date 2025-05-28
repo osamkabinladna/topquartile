@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
 import warnings
+import numpy as np
 
 from topquartile.modules.datamodule.transforms.covariate import CovariateTransform
 from topquartile.modules.datamodule.transforms.label import LabelTransform
@@ -167,6 +168,10 @@ class DataLoader:
                 self.data = transformer.transform()
 
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
+            self.data = self._ffill_covariates()
+            self.data = self._fill_dividends()
+            self.data = self.data.replace('#NAME?', np.nan)
+            self.data = self.data.apply(pd.to_numeric, errors='ignore')
 
         return self.data
 
@@ -280,6 +285,44 @@ class DataLoader:
                 return -1
         return -1
 
+    def _fill_dividends(self):
+        """
+        Bloomberg gives NaNs for non dividend paying companies,
+        it should be zero instead
+        """
+        df_copy = self.data.copy()
+        col = 'DVD_SH_12M'
+
+        zero_div = (
+            df_copy[col]
+            .groupby(level='ticker', observed=False)
+            .transform(lambda s: s.isna().all())
+        )
+
+        df_copy.loc[zero_div, col] = 0.0
+        self.data = df_copy
+        return df_copy
+
+
+    def _ffill_covariates(self):
+        df_copy = self.data.copy()
+        df_copy = df_copy.sort_index(level='Dates')
+
+        ffill_features = [
+            "TOTAL_EQUITY", "BOOK_VAL_PER_SH", "REVENUE_PER_SH", "RETURN_COM_EQY",
+            "TOT_DEBT_TO_TOT_ASSET", "TOT_DEBT_TO_TOT_EQY",
+            "BS_TOT_LIAB2", "BS_TOT_ASSET", "IS_EPS"
+        ]
+
+        df_copy[ffill_features] = (
+            df_copy.groupby(level='ticker', observed=False)[ffill_features]
+            .ffill()
+        )
+
+        self.data = df_copy
+        return df_copy
+
+
     def _partition_data(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         if self.data is None or self.data.empty:
             print("Data not available for partitioning. Attempting to process...")
@@ -314,7 +357,7 @@ class DataLoader:
             {"train": [], "test": []} for _ in range(n_splits)
         ]
 
-        data_grouped_by_ticker = self.data.groupby(level="TickerIndex")
+        data_grouped_by_ticker = self.data.groupby(level="TickerIndex", observed=False)
         print(
             f"Partitioning data using {self.partitioner.__class__.__name__} for {n_splits} splits across {len(data_grouped_by_ticker)} tickers.")
 
