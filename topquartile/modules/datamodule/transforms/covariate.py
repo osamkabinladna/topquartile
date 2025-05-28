@@ -39,8 +39,10 @@ class TechnicalCovariateTransform(CovariateTransform):
                  macd_histogram: bool = False, obv: bool = False, roc: Optional[List[int]] = None,
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
-                 price_gap: Optional[List[int]] = None, price_vs_sma: Optional[List[int]] = None,
+                 price_gap: Optional[List[int]] = None,
+                 price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
+                 price_ratio = None,
                  ultimate: bool = False, #TBC KN
                  awesome: bool = False, #TBC KN
                  max_return: Optional[List[int]] = None, #TBC KN
@@ -234,6 +236,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.spkt_welch_density = spkt_welch_density
         self.time_reversal_asymmetry_statistic = time_reversal_asymmetry_statistic
         self.variation_coefficient = variation_coefficient
+        self.price_ratio = price_ratio
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -241,6 +244,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             self.required_base.update('VOLUME')
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
+        print('THIS IS COLUMNS', self.df.columns)
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
@@ -312,6 +316,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_spkt_welch_density(group)
         group = self._add_time_reversal_asymmetry_statistic(group)
         group = self._add_variation_coefficient(group)
+        group = self._add_price_ratio(group)
 
         return group
 
@@ -364,6 +369,17 @@ class TechnicalCovariateTransform(CovariateTransform):
                 signal = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
                 group_df['macd_histogram'] = group_df['macd'] - signal
 
+        return group_df
+
+    price_ratio = [9]
+
+    def _add_price_ratio(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.price_ratio is not None:
+            for n in self.price_ratio:
+                close_0 = group_df['PX_LAST'].shift(n)
+                close_n = group_df['PX_LAST']
+                group_df[f'momentum_{n}'] = close_0 / close_n
+                group_df[f'reversal_{n}'] = close_n / close_0
         return group_df
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
