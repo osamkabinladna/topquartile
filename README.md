@@ -1,1 +1,1 @@
-![Cool logo](img.png)
+![Cool logo](assets/img.png)
