@@ -17,6 +17,7 @@ from statsmodels.tsa.stattools import pacf
 from antropy import perm_entropy
 from antropy import sample_entropy
 from tsfresh.feature_extraction.feature_calculators import spkt_welch_density
+from pathlib import Path
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -302,7 +303,7 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         self.required_base.update(['PX_LAST'])
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
-            self.required_base.update('VOLUME')
+            self.required_base.add('VWAP_VOLUME')
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
         print('THIS IS COLUMNS', self.df.columns)
@@ -1391,8 +1392,6 @@ class TechnicalCovariateTransform(CovariateTransform):
         return group_df    
 
 
-
-
 class FundamentalCovariateTransform(CovariateTransform):
     def __init__(self, df, pe_ratio: bool = False, earnings_yield: bool = False, debt_to_assets: bool = False,
                  pe_band: Optional[Tuple[List[int], List[int]]] = None, debt_to_capital: bool = False, equity_ratio: bool = False, market_to_book: bool = False,
@@ -1667,7 +1666,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         return group_df
     
 class MacroeconomicCovariateTransform(CovariateTransform):
-    def __init__(self, df: pd.DataFrame,
+    def __init__(self, df: pd.DataFrame, root_path: Path,
                  vix_index: bool = False,
                  indo_10y_yield: bool = False,
                  bi_rate: bool = False,
@@ -1686,6 +1685,7 @@ class MacroeconomicCovariateTransform(CovariateTransform):
         :param dxy_index: Include US Dollar Index
         """
         super().__init__(df)
+        self.root_path = root_path 
         self.vix_index = vix_index
         self.indo_10y_yield = indo_10y_yield
         self.bi_rate = bi_rate
@@ -1708,6 +1708,23 @@ class MacroeconomicCovariateTransform(CovariateTransform):
             raise ValueError(f"Missing required macro columns: {missing}")
 
     def transform(self) -> pd.DataFrame:
+        
+        macro_path = self.root_path / "macro_may2025v2.csv"
+        macro_df = pd.read_csv(macro_path, parse_dates=["Dates"])
+        macro_df = macro_df.drop(columns=["IDBIRRPO Index"], errors="ignore")
+        macro_df = macro_df.set_index("Dates")
+
+        self.df['Dates'] = pd.to_datetime(self.df.index)
+
+        df_copy = self.df.reset_index(drop=True)
+        df_merged = pd.merge(df_copy, macro_df, on="Dates", how="left")
+        df_merged = df_merged.set_index(["ticker", "Dates"])
+
+        missing = [col for col in self.required_base if col not in df_merged.columns]
+        if missing:
+            raise ValueError(f"Missing required macro columns after merge: {missing}")
+        
+        self.df = df_merged
         return self.group_transform(self.df)
 
     def group_transform(self, df: pd.DataFrame) -> pd.DataFrame:
