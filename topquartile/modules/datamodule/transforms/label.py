@@ -106,7 +106,6 @@ class BinaryLabelTransform(ExcessReturnTransform):
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
         """
         Assigns a binary label based on whether the excess return is in the top quantile.
-        Operates on a group (typically grouped by date).
         """
         valid_returns = group[self.excess_return_col_name].dropna()
 

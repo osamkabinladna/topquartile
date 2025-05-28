@@ -64,7 +64,6 @@ class DataLoader:
         self.covariates_path = self.root_path / "data" / f"{self.data_id}.csv"
 
     def load_preds(self) -> pd.DataFrame:
-        # TODO: Revise this for later prediction
         if self.data is None:
             print("Data not loaded. Processing data...")
             try:
