@@ -1,6 +1,8 @@
 import pandas as pd
+import numpy as np
 import yfinance as yf  # Added import for yfinance
 from abc import ABC, abstractmethod  # Added imports for ABC
+from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
 
 class LabelTransform(ABC):
@@ -141,27 +143,100 @@ class BinaryLabelTransform(ExcessReturnTransform):
 
         return df_with_excess_returns
     
-class BinaryLabelTransformWrapper:
-    def __init__(self, label_duration=20, quantile=0.9, index_ticker="^JKSE", price_column="PX_LAST",
-                 ticker_level_name="ticker", date_level_name="Dates"):
-        self.label_duration = label_duration
-        self.quantile = quantile
-        self.index_ticker = index_ticker
+class KMRFLabelTransform:
+    def __init__(self, price_column="PX_LAST", kama_n=10, gamma=0.5):
         self.price_column = price_column
-        self.ticker_level_name = ticker_level_name
-        self.date_level_name = date_level_name
+        self.kama_n = kama_n
+        self.gamma = gamma
+
+    def calculate_kama(self, price, n=None, fast=2, slow=30):
+        n = n or self.kama_n
+        delta = price.diff()
+        signal = abs(price - price.shift(n))
+        noise = delta.abs().rolling(n).sum()
+        er = signal / noise.replace(0, np.nan)
+        fast_sc = 2 / (fast + 1)
+        slow_sc = 2 / (slow + 1)
+        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2
+
+        kama = [price.iloc[0]]
+        for i in range(1, len(price)):
+            k = sc.iloc[i] if not np.isnan(sc.iloc[i]) else slow_sc**2
+            kama.append(kama[-1] + k * (price.iloc[i] - kama[-1]))
+        return pd.Series(kama, index=price.index)
+
+    def calculate_filter(self, kama, n):
+        kama_diff = kama.diff()
+        std = kama_diff.rolling(n).std()
+        return self.gamma * std
+
+    def compute_msr_state(self, price):
+        returns = np.log(price / price.shift(1)).dropna()
+        model = MarkovRegression(returns, k_regimes=2, trend='c', switching_variance=True)
+        res = model.fit(disp=False)
+        smoothed_probs = res.smoothed_marginal_probabilities[1]  # High-variance state
+        state = (smoothed_probs > 0.5).astype(int)
+        state.index = returns.index
+        return state
+
+    def assign_regimes(self, price: pd.Series) -> pd.Series:
+        kama = self.calculate_kama(price)
+        filt = self.calculate_filter(kama, self.kama_n)
+        msr_state = self.compute_msr_state(price)
+
+        kama_diff = kama - kama.rolling(self.kama_n).min()
+        drop = kama.rolling(self.kama_n).min() - kama
+        condition_up = kama_diff > filt
+        condition_down = drop > filt
+
+        condition_up = condition_up.reindex(price.index).fillna(False)
+        condition_down = condition_down.reindex(price.index).fillna(False)
+        msr_state = msr_state.reindex(price.index).fillna(0)
+
+        regime = pd.Series(index=price.index, dtype='float')
+        regime[(msr_state == 0) & condition_down] = 0  # LV bearish
+        regime[(msr_state == 0) & condition_up] = 1    # LV bullish
+        regime[(msr_state == 1) & condition_down] = 2  # HV bearish
+        regime[(msr_state == 1) & condition_up] = 3    # HV bullish
+        return regime
+    
+    def extend_labels(self, regime: pd.Series) -> pd.Series:
+        label = pd.Series(index=regime.index, dtype='float').fillna(0)
+
+        # Iterate over full regime series and extend bullish and bearish
+        i = 0
+        while i < len(regime):
+            if regime.iloc[i] == 1:  # LV Bullish
+                start = i
+                while i < len(regime) and regime.iloc[i] != 3:
+                    i += 1
+                while i < len(regime) and regime.iloc[i] == 3:
+                    i += 1
+                label.iloc[start:i] = 1  # Bullish
+            elif regime.iloc[i] == 2:  # HV Bearish
+                start = i
+                while i < len(regime) and regime.iloc[i] != 0:
+                    i += 1
+                while i < len(regime) and regime.iloc[i] == 0:
+                    i += 1
+                label.iloc[start:i] = -1  # Bearish
+            else:
+                i += 1
+        return label.fillna(0)
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        transformer = BinaryLabelTransform(
-            df=df,
-            label_duration=self.label_duration,
-            quantile=self.quantile,
-            index_ticker=self.index_ticker,
-            price_column=self.price_column,
-            ticker_level_name=self.ticker_level_name,
-            date_level_name=self.date_level_name
-        )
-        return transformer.transform()
+        df = df.copy()
+        if df.index.nlevels == 2:
+            result = df.groupby(level=0).apply(
+                lambda g: self.assign_regimes(g[self.price_column])
+            )
+        else:
+            result = self.assign_regimes(df[self.price_column])
+        
+        df["regime_label_raw"] = result  # 4-class
+        df["regime_label"] = self.extend_labels(result)  # 3-class
+        return df
+
 
 
 class NaryLabelTransform(ExcessReturnTransform):
