@@ -184,26 +184,31 @@ class KMRFLabelTransform:
         filt = self.calculate_filter(kama, self.kama_n)
         msr_state = self.compute_msr_state(price)
 
+        # Drop and up logic for KAMA
         kama_diff = kama - kama.rolling(self.kama_n).min()
-        drop = kama.rolling(self.kama_n).min() - kama
+        drop = kama.rolling(self.kama_n).max() - kama
         condition_up = kama_diff > filt
         condition_down = drop > filt
 
+        # Align and clean
         condition_up = condition_up.reindex(price.index).fillna(False)
         condition_down = condition_down.reindex(price.index).fillna(False)
         msr_state = msr_state.reindex(price.index).fillna(0)
 
+        # Create regime series
         regime = pd.Series(index=price.index, dtype='float')
         regime[(msr_state == 0) & condition_down] = 0  # LV bearish
         regime[(msr_state == 0) & condition_up] = 1    # LV bullish
         regime[(msr_state == 1) & condition_down] = 2  # HV bearish
         regime[(msr_state == 1) & condition_up] = 3    # HV bullish
+
+        # Debug counts
+        print("Raw regime counts:\n", regime.value_counts(dropna=False))
         return regime
-    
+
     def extend_labels(self, regime: pd.Series) -> pd.Series:
         label = pd.Series(index=regime.index, dtype='float').fillna(0)
 
-        # Iterate over full regime series and extend bullish and bearish
         i = 0
         while i < len(regime):
             if regime.iloc[i] == 1:  # LV Bullish
@@ -236,7 +241,6 @@ class KMRFLabelTransform:
         df["regime_label_raw"] = result  # 4-class
         df["regime_label"] = self.extend_labels(result)  # 3-class
         return df
-
 
 
 class NaryLabelTransform(ExcessReturnTransform):
