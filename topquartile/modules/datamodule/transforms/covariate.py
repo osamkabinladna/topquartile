@@ -34,7 +34,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  macd_histogram: bool = False, obv: bool = False, roc: Optional[List[int]] = None,
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
                  volume_std: Optional[List[int]] = None, vroc: Optional[List[int]] = None,
-                 price_gap: Optional[List[int]] = None,
+                 price_gap: Optional[List[int]] = None, acceleration_rate: bool = False,
                  price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
                  price_ratio = None,
@@ -196,6 +196,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.linear_trend_timewise = linear_trend_timewise
         self.longest_strike_above_mean = longest_strike_above_mean
         self.price_ratio = price_ratio
+        self.acceleration_rate = acceleration_rate
+        self.sma_vol = None
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
@@ -264,24 +266,41 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_linear_trend_timewise(group)
         group = self._add_longest_strike_above_mean(group)
         group = self._add_price_ratio(group)
-
+        group = self._add_acceleration_rate(group)
         return group
 
     def transform(self) -> pd.DataFrame:
         transformed_df = self.df.groupby('ticker', group_keys=True, observed=False).apply(self.group_transform)
         return transformed_df.sort_index()
 
-
     def _add_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.sma is not None:
             for window in self.sma:
-                group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+                group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window).mean()
+        return group_df
+
+    def _add_acceleration_rate(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.acceleration_rate:
+            self.volume_sma = [10, 20, 40, 60]
+            group_df = self._add_volume_sma(group_df)
+            group_df['acceleration_10/20'] = group_df['volume_sma_10'] / group_df['volume_sma_20']
+            group_df['acceleration_10/40'] = group_df['volume_sma_10'] / group_df['volume_sma_40']
+            group_df['acceleration_10/60'] = group_df['volume_sma_10'] / group_df['volume_sma_60']
+            group_df['acceleration_20/20'] = group_df['volume_sma_20'] / group_df['volume_sma_20']
+            group_df['acceleration_20/60'] = group_df['volume_sma_20'] / group_df['volume_sma_60']
+            group_df['acceleration_40/60'] = group_df['volume_sma_40'] / group_df['volume_sma_60']
+        return group_df
+
+    def _add_sma_vol(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.sma_vol is not None:
+            for window in self.sma:
+                group_df[f'sma_vol_{window}'] = group_df['VOLUME'].rolling(window=window).mean()
         return group_df
 
     def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.ema is not None:
             for window in self.ema:
-                group_df[f'ema_{window}'] = group_df['PX_LAST'].ewm(span=window, adjust=False, min_periods=window).mean()
+                group_df[f'ema_{window}'] = group_df['PX_LAST'].ewm(span=window, adjust=False).mean()
         return group_df
 
     def _add_rsi(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -290,8 +309,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                 delta = group_df['PX_LAST'].diff()
                 gain = delta.clip(lower=0)
                 loss = -delta.clip(upper=0)
-                avg_gain = gain.ewm(com=window - 1, adjust=False, min_periods=window).mean()
-                avg_loss = loss.ewm(com=window - 1, adjust=False, min_periods=window).mean()
+                avg_gain = gain.ewm(com=window - 1, adjust=False).mean()
+                avg_loss = loss.ewm(com=window - 1, adjust=False).mean()
 
                 rs = avg_gain / avg_loss
                 rsi_val = 100.0 - (100.0 / (1.0 + rs))
@@ -303,22 +322,20 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_macd(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.macd:
-            ema12 = group_df['PX_LAST'].ewm(span=12, adjust=False, min_periods=12).mean()
-            ema26 = group_df['PX_LAST'].ewm(span=26, adjust=False, min_periods=26).mean()
+            ema12 = group_df['PX_LAST'].ewm(span=12, adjust=False).mean()
+            ema26 = group_df['PX_LAST'].ewm(span=26, adjust=False).mean()
             group_df['macd'] = ema12 - ema26
 
             if self.macd_signal:
-                group_df['macd_signal'] = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
+                group_df['macd_signal'] = group_df['macd'].ewm(span=9, adjust=False).mean()
 
                 if self.macd_histogram:
                     group_df['macd_histogram'] = group_df['macd'] - group_df['macd_signal']
             elif self.macd_histogram:
-                signal = group_df['macd'].ewm(span=9, adjust=False, min_periods=9).mean()
+                signal = group_df['macd'].ewm(span=9, adjust=False).mean()
                 group_df['macd_histogram'] = group_df['macd'] - signal
 
         return group_df
-
-    price_ratio = [9]
 
     def _add_price_ratio(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.price_ratio is not None:
@@ -328,6 +345,11 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'momentum_{n}'] = close_0 / close_n
                 group_df[f'reversal_{n}'] = close_n / close_0
         return group_df
+
+    def _add_vol_acceleration(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        self.sma_vol = [10, 20, 40, 60]
+        self._add_sma_vol(group_df)
+        group_df['vol_acc_10_20'] = group_df['sma_vol_10'] / group_df['sma_vol_20']
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.obv:
@@ -343,14 +365,14 @@ class TechnicalCovariateTransform(CovariateTransform):
     def _add_price_gap(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.price_gap is not None:
             for window in self.price_gap:
-                sma = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+                sma = group_df['PX_LAST'].rolling(window=window).mean()
                 group_df[f'price_gap_{window}'] = group_df['PX_LAST'] - sma
         return group_df
 
     def _add_price_vs_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.price_vs_sma is not None:
             for window in self.price_vs_sma:
-                sma = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
+                sma = group_df['PX_LAST'].rolling(window=window).mean()
                 group_df[f'price_div_sma_{window}'] = (group_df['PX_LAST'] / sma).replace([np.inf, -np.inf], np.nan)
         return group_df
 
@@ -373,7 +395,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         if self.volatility is not None:
             daily_return = group_df['PX_LAST'].pct_change(fill_method=None)
             for window in self.volatility:
-                group_df[f'volatility_{window}'] = daily_return.rolling(window=window, min_periods=window).std()
+                group_df[f'volatility_{window}'] = daily_return.rolling(window=window).std()
         return group_df
 
     def _add_volume_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -382,7 +404,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 warnings.warn(f"Skipping Volume SMA for group: 'VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_sma:
-                group_df[f'volume_sma_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).mean()
+                group_df[f'volume_sma_{window}'] = group_df['VOLUME'].rolling(window=window).mean()
         return group_df
 
     def _add_volume_std(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -391,7 +413,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 warnings.warn(f"Skipping Volume StDev for group: 'VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_std:
-                group_df[f'volume_std_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).std()
+                group_df[f'volume_std_{window}'] = group_df['VOLUME'].rolling(window=window).std()
         return group_df
 
     def _add_vroc(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -445,8 +467,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                 return group_df
 
             median_price = (group_df['HIGH'] + group_df['LOW']) / 2
-            short_ma = median_price.rolling(window=5, min_periods=5).mean()
-            long_ma = median_price.rolling(window=34, min_periods=34).mean()
+            short_ma = median_price.rolling(window=5).mean()
+            long_ma = median_price.rolling(window=34).mean()
 
             group_df['awesome_oscillator'] = short_ma - long_ma
         return group_df
@@ -481,9 +503,9 @@ class TechnicalCovariateTransform(CovariateTransform):
             close = group_df['PX_LAST']
             n = 21
 
-            ema1 = close.ewm(span=n, adjust=False, min_periods=n).mean()
-            ema2 = ema1.ewm(span=n, adjust=False, min_periods=n).mean()
-            ema3 = ema2.ewm(span=n, adjust=False, min_periods=n).mean()
+            ema1 = close.ewm(span=n, adjust=False).mean()
+            ema2 = ema1.ewm(span=n, adjust=False).mean()
+            ema3 = ema2.ewm(span=n, adjust=False).mean()
             ema3_prev = ema3.shift(1)
 
             trix = ((ema3 - ema3_prev) / ema3_prev).replace([np.inf, -np.inf], np.nan)
@@ -625,11 +647,11 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         n = 21
         close = group_df['PX_LAST']
-        max_high = group_df['PX_HIGH'].rolling(window=n, min_periods=n).max()
+        max_high = group_df['PX_HIGH'].rolling(window=n).max()
         pd_val = ((close - max_high) / max_high) * 100
 
         pd_squared = pd_val.pow(2)
-        ulcer_index = pd_squared.rolling(window=n, min_periods=n).mean().pow(0.5)
+        ulcer_index = pd_squared.rolling(window=n).mean().pow(0.5)
 
         group_df['ulcer_index'] = ulcer_index
         return group_df
@@ -643,8 +665,8 @@ class TechnicalCovariateTransform(CovariateTransform):
             tp = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
 
             for window in self.mean_price_volatility:
-                std = tp.rolling(window=window, min_periods=window).std()
-                ema_std = std.ewm(span=window, adjust=False, min_periods=window).mean()
+                std = tp.rolling(window=window).std()
+                ema_std = std.ewm(span=window, adjust=False).mean()
                 group_df[f'mean_std_{window}'] = ema_std
 
         return group_df
@@ -694,11 +716,11 @@ class TechnicalCovariateTransform(CovariateTransform):
             low = group_df['PX_LOW']
             diff = high - low
 
-            ema1 = diff.ewm(span=9, adjust=False, min_periods=9).mean()
-            ema2 = ema1.ewm(span=9, adjust=False, min_periods=9).mean()
+            ema1 = diff.ewm(span=9, adjust=False).mean()
+            ema2 = ema1.ewm(span=9, adjust=False).mean()
 
             mass = ema1 / ema2
-            group_df['mass_index'] = mass.rolling(window=25, min_periods=25).sum()
+            group_df['mass_index'] = mass.rolling(window=25).sum()
 
         return group_df
         
@@ -711,8 +733,8 @@ class TechnicalCovariateTransform(CovariateTransform):
             typical_price = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
 
             for window in self.cci:
-                ma = typical_price.rolling(window=window, min_periods=window).mean()
-                md = (typical_price - ma).abs().rolling(window=window, min_periods=window).mean()
+                ma = typical_price.rolling(window=window).mean()
+                md = (typical_price - ma).abs().rolling(window=window).mean()
                 cci = (typical_price - ma) / (0.015 * md)
                 group_df[f'cci_{window}'] = cci.replace([np.inf, -np.inf], np.nan)
 
@@ -758,8 +780,8 @@ class TechnicalCovariateTransform(CovariateTransform):
 
             dollar_volume = close * group_df['VOLUME']
 
-            ema1 = dollar_volume.ewm(span=21, adjust=False, min_periods=21).mean()
-            ema2 = returns.ewm(span=21, adjust=False, min_periods=21).mean()
+            ema1 = dollar_volume.ewm(span=21, adjust=False).mean()
+            ema2 = returns.ewm(span=21, adjust=False).mean()
 
             group_df['amih_l'] = (np.abs(ema2) / ema1) * 1_000_000
 
@@ -1240,7 +1262,7 @@ class FundamentalCovariateTransform(CovariateTransform):
                         continue
                     q_decimal = q_percent / 100.0
                     try:
-                        group_df[f'pe_band_{window}_{q_percent}'] = group_df[pe_col_name].rolling(window=window, min_periods=max(1, int(window*q_decimal))).quantile(q_decimal, interpolation='linear')
+                        group_df[f'pe_band_{window}_{q_percent}'] = group_df[pe_col_name].rolling(window=window).quantile(q_decimal, interpolation='linear')
                     except Exception as e:
                         warnings.warn(f"Could not calculate pe_band_{window}_{q_percent} for group '{group_df['ticker'].iloc[0]}'. Error: {e}", UserWarning)
 
