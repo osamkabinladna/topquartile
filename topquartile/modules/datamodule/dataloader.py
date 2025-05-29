@@ -169,7 +169,7 @@ class DataLoader:
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
             self._ffill_covariates()
             self._fill_dividends()
-            # self.data = self.data.replace('#NAME?', np.nan)
+            self.data = self.data.replace('#NAME?', np.nan)
             self.data = self.data.apply(pd.to_numeric, errors='ignore')
 
         return self.data
