@@ -10,14 +10,34 @@ from topquartile.modules.datamodule.transforms.label import ExcessReturnTransfor
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
 
-covtrans_config = [((TechnicalCovariateTransform, dict(sma = [20, 30], volume_std = [10, 20, 40, 60, 120],
-                                                     ema = [20, 30],
-                                                     volatility = [120, 60, 40, 20], 1],
-                                                     turnover = [20, 40, 60, 120, 240], volume_std = [10,20,40,60,120] ))), 
-                   (FundamentalCovariateTransform, dict(adjusted_roic=True))]
+covtrans_config = [
+    (
+        TechnicalCovariateTransform, 
+        dict(
+            sma=[20, 30],
+            volume_std=[10, 20, 40, 60, 120],
+            ema=[20, 30],
+            volatility=[120, 60, 40, 20],
+            turnover=[20, 40, 60, 120, 240]
+        )
+    ), 
+    (
+        FundamentalCovariateTransform, 
+        dict(adjusted_roic=True)
+    )
+]
 
-labeltrans_config = [(ExcessReturnTransform, dict(label_duration=20,
-                                                quantile=0.75))]
+labeltrans_config = [
+    (
+        ExcessReturnTransform, 
+        dict(label_duration=20, quantile=0.75)
+    )
+]
+dataloader = DataLoader(data_id='dec2024',
+                  partition_class=PurgedTimeSeriesPartition,
+                  covariate_transform=covtrans_config,
+                  label_transform=labeltrans_config).transform_covariates()
+
 folds = dataloader.get_cv_folds()
 
 TARGET = "EXCESS_RETURN"

@@ -202,7 +202,9 @@ class TechnicalCovariateTransform(CovariateTransform):
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
             self.required_base.update('VOLUME')
 
+
         missing_base = [col for col in self.required_base if col not in self.df.columns]
+        print('REQUIRED BASE ______----------_____', self.required_base)
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
 
@@ -276,6 +278,19 @@ class TechnicalCovariateTransform(CovariateTransform):
             for window in self.sma:
                 group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
         return group_df
+    
+    def _add_vol_accrelaration(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        self.sma_vol = [10, 20, 40, 60]
+        self._add_sma_vol(group_df)
+        group_df['vol_acc_10_20'] = group_df['sma_vol_10'] / group_df['sma_vol_20']
+        group_df['vol_acc_10_20'] = group_df['sma_vol_10'] / group_df['sma_vol_20']
+        group_df['vol_acc_10_40'] = group_df['sma_vol_10'] / group_df['sma_vol_40']
+        group_df['vol_acc_10_60'] = group_df['sma_vol_10'] / group_df['sma_vol_60']
+        group_df['vol_acc_20_40'] = group_df['sma_vol_20'] / group_df['sma_vol_40']
+        group_df['vol_acc_20_60'] = group_df['sma_vol_20'] / group_df['sma_vol_60']
+        group_df['vol_acc_40_60'] = group_df['sma_vol_40'] / group_df['sma_vol_60']
+        return group_df
+    
 
     def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.ema is not None:
