@@ -37,7 +37,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  price_gap: Optional[List[int]] = None, acceleration_rate: bool = False,
                  price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
-                 price_ratio = None,
+                 price_ratio: Optional[List[int]] = None,
                  ultimate: bool = False, #TBC KN
                  awesome: bool = False, #TBC KN
                  max_return: Optional[List[int]] = None, #TBC KN
@@ -77,7 +77,9 @@ class TechnicalCovariateTransform(CovariateTransform):
                  lempel_ziv_complexity: bool = False,
                  linear_trend_timewise: bool = False,
                  longest_strike_above_mean: bool = False,
-                 turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
+                 turnover: Optional[List[int]] = None,
+                 std_vol: Optional[List[int]] = None,
+                 beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
         :param sma: List of window sizes for Simple Moving Average
@@ -140,6 +142,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         super().__init__(df)
 
         self.sma = sma
+        self.std_vol = std_vol
         self.ema = ema
         self.rsi = rsi
         self.macd = macd
@@ -156,16 +159,16 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.turnover = turnover
         self.beta = beta
         self.momentum_change = momentum_change
-        self.ultimate = ultimate #TBC KN
-        self.awesome = awesome #TBC KN
-        self.max_return = max_return #TBC KN
-        self.trix = trix #TBC KN
-        self.atr = atr #TBC KN
-        self.cmo = cmo #TBC KN
-        self.plus_di = plus_di #TBC KN
-        self.minus_di = minus_di #TBC KN
-        self.bb = bb #TBC KN
-        self.ulcer = ulcer #TBC KN
+        self.ultimate = ultimate
+        self.awesome = awesome
+        self.max_return = max_return
+        self.trix = trix
+        self.atr = atr
+        self.cmo = cmo
+        self.plus_di = plus_di
+        self.minus_di = minus_di
+        self.bb = bb
+        self.ulcer = ulcer
         self.mean_price_volatility = mean_price_volatility
         self.force_index = force_index
         self.mfi = mfi
@@ -201,8 +204,6 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
-        if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
-            self.required_base.update('VOLUME')
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
         print('THIS IS COLUMNS', self.df.columns)
@@ -267,6 +268,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_longest_strike_above_mean(group)
         group = self._add_price_ratio(group)
         group = self._add_acceleration_rate(group)
+        group = self._add_std_vol(group)
         return group
 
     def transform(self) -> pd.DataFrame:
@@ -295,6 +297,13 @@ class TechnicalCovariateTransform(CovariateTransform):
         if self.sma_vol is not None:
             for window in self.sma:
                 group_df[f'sma_vol_{window}'] = group_df['VOLUME'].rolling(window=window).mean()
+        return group_df
+
+
+    def _add_std_vol(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if self.std_vol is not None:
+            for window in self.sma:
+                group_df[f'std_vol_{window}'] = group_df['VOLUME'].rolling(window=window).std()
         return group_df
 
     def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
