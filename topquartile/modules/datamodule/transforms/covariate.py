@@ -268,7 +268,6 @@ class TechnicalCovariateTransform(CovariateTransform):
         group = self._add_longest_strike_above_mean(group)
         group = self._add_price_ratio(group)
         group = self._add_acceleration_rate(group)
-        group = self._add_std_vol(group)
         return group
 
     def transform(self) -> pd.DataFrame:
@@ -296,14 +295,14 @@ class TechnicalCovariateTransform(CovariateTransform):
     def _add_sma_vol(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.sma_vol is not None:
             for window in self.sma:
-                group_df[f'sma_vol_{window}'] = group_df['VOLUME'].rolling(window=window).mean()
+                group_df[f'sma_vol_{window}'] = group_df['PX_VOLUME'].rolling(window=window).mean()
         return group_df
 
 
     def _add_std_vol(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.std_vol is not None:
             for window in self.sma:
-                group_df[f'std_vol_{window}'] = group_df['VOLUME'].rolling(window=window).std()
+                group_df[f'std_vol_{window}'] = group_df['PX_VOLUME'].rolling(window=window).std()
         return group_df
 
     def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -362,11 +361,11 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.obv:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping OBV for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping OBV for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             price_diff = group_df['PX_LAST'].diff()
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
             signed_volume = pd.Series(np.sign(price_diff) * volume).fillna(0)
             group_df['obv'] = signed_volume.cumsum()
         return group_df
@@ -409,30 +408,30 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_volume_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_sma:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping Volume SMA for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume SMA for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_sma:
-                group_df[f'volume_sma_{window}'] = group_df['VOLUME'].rolling(window=window).mean()
+                group_df[f'volume_sma_{window}'] = group_df['PX_VOLUME'].rolling(window=window).mean()
         return group_df
 
     def _add_volume_std(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_std is not None:
-            if 'VOLUME' not in group_df.columns:
+            if 'PX_VOLUME' not in group_df.columns:
                 warnings.warn(f"Skipping Volume StDev for group: 'VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_std:
-                group_df[f'volume_std_{window}'] = group_df['VOLUME'].rolling(window=window).std()
+                group_df[f'volume_std_{window}'] = group_df['PX_VOLUME'].rolling(window=window).std()
         return group_df
 
     def _add_vroc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.vroc is not None:
-            if 'VOLUME' not in group_df.columns:
+            if 'PX_VOLUME' not in group_df.columns:
                 warnings.warn(f"Skipping VROC for group: 'VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.vroc:
-                shifted_volume = group_df['VOLUME'].shift(window)
-                group_df[f'vroc_{window}'] = ((group_df['VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
+                shifted_volume = group_df['PX_VOLUME'].shift(window)
+                group_df[f'vroc_{window}'] = ((group_df['PX_VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
         return group_df
 
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -475,7 +474,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
                 return group_df
 
-            median_price = (group_df['HIGH'] + group_df['LOW']) / 2
+            median_price = (group_df['PX_HIGH'] + group_df['PX_LOW']) / 2
             short_ma = median_price.rolling(window=5).mean()
             long_ma = median_price.rolling(window=34).mean()
 
@@ -682,25 +681,25 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_force_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.force_index:
-            if 'VOLUME' not in group_df.columns:
+            if 'PX_VOLUME' not in group_df.columns:
                 warnings.warn("Skipping Force Index: 'VOLUME' column not found.", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
 
             group_df['force_index'] = (close - prior_close) * volume
         return group_df
     
     def _add_mfi(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.mfi:
-            if not all(col in group_df.columns for col in ['High', 'Low', 'PX_LAST', 'VOLUME']):
-                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, VOLUME)", UserWarning)
+            if not all(col in group_df.columns for col in ['PX_HIGH', 'PX_LOW', 'PX_LAST', 'PX_VOLUME']):
+                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             typical_price = (group_df['High'] + group_df['Low'] + group_df['PX_LAST']) / 3
-            raw_money_flow = typical_price * group_df['VOLUME']
+            raw_money_flow = typical_price * group_df['PX_VOLUME']
             tp_diff = tp_diff = pd.to_numeric(typical_price.diff(), errors="coerce")
 
             positive_flow = raw_money_flow.where(tp_diff > 0, 0)
@@ -778,16 +777,16 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_amih_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.amih_l:
-            required_cols = ['PX_LAST', 'VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
-            dollar_volume = close * group_df['VOLUME']
+            dollar_volume = close * group_df['PX_VOLUME']
 
             ema1 = dollar_volume.ewm(span=21, adjust=False).mean()
             ema2 = returns.ewm(span=21, adjust=False).mean()
@@ -813,13 +812,13 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_kyle_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.kyle_l:
-            required_cols = ['PX_LAST', 'VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
