@@ -6,23 +6,18 @@ from quantile_forest import RandomForestQuantileRegressor
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import (
     TechnicalCovariateTransform, FundamentalCovariateTransform)
-from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform
+from topquartile.modules.datamodule.transforms.label import ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
-covtrans_config = [(
-    TechnicalCovariateTransform,
-    dict(sma=[20, 30], ema=[20, 30], momentum_change=True, volatility=[20, 30]),
-)]
-labeltrans_config = [(BinaryLabelTransform, dict(label_duration=20, quantile=0.75))]
-partition_config = dict(n_splits=5, gap=20, max_train_size=504, test_size=60)
 
-dataloader = DataLoader(
-    data_id="dec2024",
-    covariate_transform=covtrans_config,
-    label_transform=labeltrans_config,
-    partition_class=PurgedTimeSeriesPartition,
-    partition_kwargs=partition_config,
-)
+covtrans_config = [((TechnicalCovariateTransform, dict(sma = [20, 30], volume_std = [10, 20, 40, 60, 120],
+                                                     ema = [20, 30],
+                                                     volatility = [120, 60, 40, 20], 1],
+                                                     turnover = [20, 40, 60, 120, 240], volume_std = [10,20,40,60,120] ))), 
+                   (FundamentalCovariateTransform, dict(adjusted_roic=True))]
+
+labeltrans_config = [(ExcessReturnTransform, dict(label_duration=20,
+                                                quantile=0.75))]
 folds = dataloader.get_cv_folds()
 
 TARGET = "EXCESS_RETURN"
