@@ -3,6 +3,7 @@ import numpy as np
 import yfinance as yf  # Added import for yfinance
 from abc import ABC, abstractmethod  # Added imports for ABC
 from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
+from pathlib import Path
 
 
 class LabelTransform(ABC):
@@ -143,11 +144,20 @@ class BinaryLabelTransform(ExcessReturnTransform):
 
         return df_with_excess_returns
     
-class KMRFLabelTransform:
-    def __init__(self, price_column="PX_LAST", kama_n=10, gamma=0.5):
+class KMRFLabelTransform(LabelTransform):
+    def __init__(self, df: pd.DataFrame, root_path: Path, 
+                 index_file: str = "ihsg_may2025.csv",
+                 price_column: str = "PX_LAST",
+                 kama_n: int = 10, gamma: float = 0.5):
+        self.df = df
         self.price_column = price_column
         self.kama_n = kama_n
         self.gamma = gamma
+
+        index_path = Path(index_file) if "/" in index_file else (root_path / "data" / index_file)
+        self.index_df = pd.read_csv(index_path, parse_dates=["Dates"])
+        self.index_df.set_index("Dates", inplace=True)
+        self.index_price = self.index_df[price_column]
 
     def calculate_kama(self, price, n=None, fast=2, slow=30):
         n = n or self.kama_n
@@ -229,17 +239,23 @@ class KMRFLabelTransform:
                 i += 1
         return label.fillna(0)
 
+    
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
+
+        regime_raw = self.assign_regimes(self.index_price)
+        regime_label = self.extend_labels(regime_raw)
+
         if df.index.nlevels == 2:
-            result = df.groupby(level=0).apply(
-                lambda g: self.assign_regimes(g[self.price_column])
-            )
+            date_level = df.index.get_level_values("Dates")
         else:
-            result = self.assign_regimes(df[self.price_column])
-        
-        df["regime_label_raw"] = result  # 4-class
-        df["regime_label"] = self.extend_labels(result)  # 3-class
+            date_level = df.index
+
+        aligned_raw = date_level.map(regime_raw).astype(float)
+        aligned_label = date_level.map(regime_label).astype(float)
+
+        df["regime_label_raw"] = aligned_raw
+        df["regime_label"] = aligned_label
         return df
 
 

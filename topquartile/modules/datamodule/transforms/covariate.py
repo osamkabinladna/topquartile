@@ -162,6 +162,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  ar_coefficient: Optional[List[int]] = None,
                  partial_autocorrelation: Optional[List[int]] = None,
                  turnover: Optional[List[int]] = None,
+                 adfuller_window: int = 50,
                  beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
@@ -171,11 +172,11 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param macd: Calculate MACD (12-ema - 26-ema). Required for signal/histogram
         :param macd_signal: Calculate MACD signal line (9-ema of MACD)
         :param macd_histogram: Calculate MACD histogram (MACD - signal)
-        :param obv: Calculate On-Balance Volume. Requires 'VWAP_VOLUME,'
+        :param obv: Calculate On-Balance Volume. Requires 'VOLUME,'
         :param roc: List of periods for Price Rate of Change
         :param volatility: List of window sizes for rolling standard deviation of daily returns
-        :param volume_sma: List of window sizes for Simple Moving Average of Volume. Requires 'VWAP_VOLUME,'
-        :param volume_std: List of window sizes for Rolling Standard Deviation of Volume. Requires 'VWAP_VOLUME'
+        :param volume_sma: List of window sizes for Simple Moving Average of Volume. Requires 'VOLUME,'
+        :param volume_std: List of window sizes for Rolling Standard Deviation of Volume. Requires 'VOLUME'
         :param vroc: List of periods for Volume Rate of Change. Requires 'VOLUME'
         :param price_gap: List of window sizes for Price - SMA(window)
         :param price_vs_sma: List of window sizes for Price / SMA(window)
@@ -233,6 +234,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param spkt_welch_density: Calculate spectral Welch density over rolling windows using tsfresh.
         :param time_reversal_asymmetry_statistic: Whether to calculate the time reversal asymmetry statistic (TRAS) from the time series.
         :param variation_coefficient: Whether to calculate the variation coefficient (standard deviation / mean) from the time series.
+        :param adfuller_window: Integer rolling window used to compute the ADF statistic.
         """
         super().__init__(df)
 
@@ -270,6 +272,7 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.amih_l = amih_l
         self.kyle_l = kyle_l
         self.corwin_schultz = corwin_schultz
+        self.adfuller_window = adfuller_window
         self.approximate_entropy = approximate_entropy
         self.adfuller = adfuller
         self.binned_entropy = binned_entropy
@@ -303,7 +306,7 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         self.required_base.update(['PX_LAST'])
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
-            self.required_base.add('VWAP_VOLUME')
+            self.required_base.add('PX_VOLUME')
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
         print('THIS IS COLUMNS', self.df.columns)
@@ -460,11 +463,11 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.obv:
-            if 'VWAP_VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping OBV for group: 'VWAP_VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping OBV for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             price_diff = group_df['PX_LAST'].diff()
-            volume = group_df['VWAP_VOLUME']
+            volume = group_df['PX_VOLUME']
             signed_volume = pd.Series(np.sign(price_diff) * volume).fillna(0)
             group_df['obv'] = signed_volume.cumsum()
         return group_df
@@ -507,30 +510,30 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_volume_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_sma:
-            if 'VWAP_VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping Volume SMA for group: 'VWAP_VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume SMA for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_sma:
-                group_df[f'volume_sma_{window}'] = group_df['VWAP_VOLUME'].rolling(window=window, min_periods=window).mean()
+                group_df[f'volume_sma_{window}'] = group_df['PX_VOLUME'].rolling(window=window, min_periods=window).mean()
         return group_df
 
     def _add_volume_std(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_std is not None:
-            if 'VWAP_VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping Volume StDev for group: 'VWAP_VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume StDev for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_std:
-                group_df[f'volume_std_{window}'] = group_df['VWAP_VOLUME'].rolling(window=window, min_periods=window).std()
+                group_df[f'volume_std_{window}'] = group_df['PX_VOLUME'].rolling(window=window, min_periods=window).std()
         return group_df
 
     def _add_vroc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.vroc is not None:
-            if 'VWAP_VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping VROC for group: 'VWAP_VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping VROC for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.vroc:
-                shifted_volume = group_df['VWAP_VOLUME'].shift(window)
-                group_df[f'vroc_{window}'] = ((group_df['VWAP_VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
+                shifted_volume = group_df['PX_VOLUME'].shift(window)
+                group_df[f'vroc_{window}'] = ((group_df['PX_VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
         return group_df
 
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -780,25 +783,25 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_force_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.force_index:
-            if 'VWAP_VOLUME' not in group_df.columns:
-                warnings.warn("Skipping Force Index: 'VWAP_VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn("Skipping Force Index: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
-            volume = group_df['VWAP_VOLUME']
+            volume = group_df['PX_VOLUME']
 
             group_df['force_index'] = (close - prior_close) * volume
         return group_df
     
     def _add_mfi(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.mfi:
-            if not all(col in group_df.columns for col in ['PX_HIGH', 'PX_LOW', 'PX_LAST', 'VWAP_VOLUME']):
-                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, VWAP_VOLUME)", UserWarning)
+            if not all(col in group_df.columns for col in ['PX_HIGH', 'PX_LOW', 'PX_LAST', 'PX_VOLUME']):
+                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             typical_price = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
-            raw_money_flow = typical_price * group_df['VWAP_VOLUME']
+            raw_money_flow = typical_price * group_df['PX_VOLUME']
             tp_diff = tp_diff = pd.to_numeric(typical_price.diff(), errors="coerce")
 
             positive_flow = raw_money_flow.where(tp_diff > 0, 0)
@@ -876,16 +879,16 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_amih_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.amih_l:
-            required_cols = ['PX_LAST', 'VWAP_VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, VWAP_VOLUME)", UserWarning)
+                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
-            dollar_volume = close * group_df['VWAP_VOLUME']
+            dollar_volume = close * group_df['PX_VOLUME']
 
             ema1 = dollar_volume.ewm(span=21, adjust=False, min_periods=21).mean()
             ema2 = returns.ewm(span=21, adjust=False, min_periods=21).mean()
@@ -894,7 +897,7 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         return group_df
     
-    def _rolling_beta(self, y: pd.Series, x: pd.Series, window: int) -> pd.Series: #TBC, rolling beta added without previous definition
+    def _rolling_beta(self, y: pd.Series, x: pd.Series, window: int) -> pd.Series:
         betas = []
         for i in range(len(y)):
             if i < window - 1:
@@ -911,13 +914,13 @@ class TechnicalCovariateTransform(CovariateTransform):
     
     def _add_kyle_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.kyle_l:
-            required_cols = ['PX_LAST', 'VWAP_VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, VWAP_VOLUME)", UserWarning)
+                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
-            volume = group_df['VWAP_VOLUME']
+            volume = group_df['PX_VOLUME']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
@@ -976,9 +979,20 @@ class TechnicalCovariateTransform(CovariateTransform):
         if not self.adfuller:
             return group_df
 
-        group_df['adfuller'] = group_df['PX_LAST'].rolling(window=50).apply(
-            lambda x: adfuller(x, autolag='AIC')[0] if len(x.dropna()) > 1 else np.nan,
-            raw=False
+        def adf_stat(series):
+            try:
+                if series.nunique() <= 1 or series.isna().all():
+                    return np.nan
+                result = adfuller(series.dropna(), autolag='AIC')
+                return result[1]
+            except Exception as e:
+                print(f"[ADF ERROR] {series.name}: {e}")
+                return np.nan
+
+        group_df["adfuller"] = (
+            group_df["PX_LAST"]
+            .rolling(self.adfuller_window, min_periods=self.adfuller_window)
+            .apply(adf_stat, raw=False)
         )
         return group_df
     
@@ -1445,7 +1459,7 @@ class FundamentalCovariateTransform(CovariateTransform):
         if self.pe_ratio or self.earnings_yield or self.pe_band:
             self.required_base.update(['PX_LAST', 'IS_EPS'])
         if self.debt_to_assets or self.debt_to_capital or self.equity_ratio or self.market_to_book:
-            self.required_base.update(['BS_TOT_ASSET', 'BS_TOTAL_LIABILITIES'])
+            self.required_base.update(['BS_TOT_ASSET', 'BS_TOT_LIAB2'])
         if self.market_to_book:
             self.required_base.add('CUR_MKT_CAP')
         if self.adjusted_roic:
@@ -1561,27 +1575,27 @@ class FundamentalCovariateTransform(CovariateTransform):
     def _add_debt_to_assets(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.debt_to_assets:
             safe_assets = group_df['BS_TOT_ASSET'].replace(0, np.nan)
-            group_df['debt_to_assets'] = (group_df['BS_TOTAL_LIABILITIES'] / safe_assets).replace([np.inf, -np.inf], np.nan)
+            group_df['debt_to_assets'] = (group_df['BS_TOT_LIAB2'] / safe_assets).replace([np.inf, -np.inf], np.nan)
         return group_df
 
     def _add_debt_to_capital(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.debt_to_capital:
-            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
-            total_capital = group_df['BS_TOTAL_LIABILITIES'] + total_equity
+            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOT_LIAB2']
+            total_capital = group_df['BS_TOT_LIAB2'] + total_equity
             safe_capital = total_capital.replace(0, np.nan)
-            group_df['debt_to_capital'] = (group_df['BS_TOTAL_LIABILITIES'] / safe_capital).replace([np.inf, -np.inf], np.nan)
+            group_df['debt_to_capital'] = (group_df['BS_TOT_LIAB2'] / safe_capital).replace([np.inf, -np.inf], np.nan)
         return group_df
 
     def _add_equity_ratio(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.equity_ratio:
-            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
+            total_equity = group_df['BS_TOT_ASSET'] - group_df['BS_TOT_LIAB2']
             safe_assets = group_df['BS_TOT_ASSET'].replace(0, np.nan)
             group_df['equity_ratio'] = (total_equity / safe_assets).replace([np.inf, -np.inf], np.nan)
         return group_df
 
     def _add_market_to_book(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.market_to_book:
-            book_value = group_df['BS_TOT_ASSET'] - group_df['BS_TOTAL_LIABILITIES']
+            book_value = group_df['BS_TOT_ASSET'] - group_df['BS_TOT_LIAB2']
             safe_book_value = book_value.replace(0, np.nan)
             safe_book_value[safe_book_value < 0] = np.nan
             group_df['market_to_book'] = (group_df['CUR_MKT_CAP'] / safe_book_value).replace([np.inf, -np.inf], np.nan)

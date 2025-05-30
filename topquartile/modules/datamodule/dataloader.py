@@ -123,6 +123,26 @@ class DataLoader:
             self._load_data()
             if self.data is None:
                 raise ValueError("Data could not be loaded in transform_data.")
+    
+        if not isinstance(self.data.index, pd.MultiIndex) or set(self.data.index.names) != {'ticker', 'Dates'}:
+            print(f"Fixing index: current index names = {self.data.index.names}")
+
+            if not isinstance(self.data.index, pd.MultiIndex):
+                if 'Dates' in self.data.columns and 'ticker' in self.data.columns:
+                    self.data = self.data.set_index(['ticker', 'Dates'])
+                elif 'ticker' in self.data.columns:
+                    self.data.index.name = 'Dates'
+                    self.data = self.data.set_index('ticker', append=True)
+                    self.data = self.data.reorder_levels(['ticker', 'Dates'])
+                else:
+                    raise ValueError("Cannot set MultiIndex — missing 'ticker' column.")
+            else:
+                if len(self.data.index.levels) == 2:
+                    self.data.index = self.data.index.set_names(['ticker', 'Dates'])
+                else:
+                    raise ValueError(f"Expected 2-level MultiIndex, got {self.data.index.names}")
+
+            self.data = self.data.sort_index()
 
         for TransformClass, params in self.covariate_transform_config:
             if not issubclass(TransformClass, CovariateTransform):
