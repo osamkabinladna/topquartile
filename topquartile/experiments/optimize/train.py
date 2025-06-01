@@ -9,9 +9,6 @@ from topquartile.modules.datamodule.transforms.covariate import TechnicalCovaria
 from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
-# ============================
-# Configuration
-# ============================
 covariate_dict = dict(
     ema=[10, 20, 30],
     sma=[10, 20, 30],

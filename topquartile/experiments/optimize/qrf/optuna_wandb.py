@@ -4,6 +4,7 @@ from optuna.integration.wandb import WeightsAndBiasesCallback
 from types import SimpleNamespace
 from quantile_forest import RandomForestQuantileRegressor
 from sklearn.metrics import mean_squared_error
+import wandb
 
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import (
@@ -90,17 +91,22 @@ def objective(trial):
         bootstrap                = trial.suggest_categorical("bootstrap", [True, False]),
     )
 
-    fold_rmses = [train_one_fold(k, cfg) for k in range(len(folds))]
-    avg_rmse   = float(np.mean(fold_rmses))
+    fold_rmses = []
+    for k in range(len(folds)):
+        rmse = train_one_fold(k, cfg)
+        print(f'TRAINED FOLD {k} with RMSE:{rmse}')
+        fold_rmses.append(rmse)
 
-    import wandb
+    avg_rmse   = float(np.mean(fold_rmses))
+    print(f'AVERAGE RMSE: {avg_rmse}')
+
     wandb.log({f"fold_{k}_rmse": rmse_k for k, rmse_k in enumerate(fold_rmses)})
     wandb.log({"avg_rmse": avg_rmse})
 
     return avg_rmse
 
 if __name__ == "__main__":
-    study = optuna.create_study(direction="minimize", study_name="qrf_optuna_multirun")
+    study = optuna.create_study(direction="minimize", study_name="testing123")
     study.optimize(objective, n_trials=50, callbacks=[wandbc])
 
     print(f"\nFinished {len(study.trials)} trials.")

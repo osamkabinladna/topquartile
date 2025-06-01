@@ -9,15 +9,13 @@ from topquartile.modules.datamodule.transforms.covariate import (
 from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform, ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
-LABEL_DURATION = 10
+LABEL_DURATION = 20
 
 covtrans_config = [(
     TechnicalCovariateTransform,
     dict(sma=[20, 40, 60],
          ema=[20, 40, 60],
          turnover=[20, 40, 60, 120, 240],
-         bb=True,
-         awesome=True,
          macd=[(12, 26, 9)],
          price_gap=[20, 40, 60],
          price_ratio=[9, 19, 39, 59, 119],
