@@ -12,7 +12,6 @@ from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
 
-# ----------- Fixed data-prep configuration ----------
 covtrans_config = [(
     TechnicalCovariateTransform,
     dict(

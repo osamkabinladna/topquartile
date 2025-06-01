@@ -287,7 +287,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['acceleration_10/20'] = group_df['volume_sma_10'] / group_df['volume_sma_20']
             group_df['acceleration_10/40'] = group_df['volume_sma_10'] / group_df['volume_sma_40']
             group_df['acceleration_10/60'] = group_df['volume_sma_10'] / group_df['volume_sma_60']
-            group_df['acceleration_20/20'] = group_df['volume_sma_20'] / group_df['volume_sma_20']
+            group_df['acceleration_20/40'] = group_df['volume_sma_20'] / group_df['volume_sma_20']
             group_df['acceleration_20/60'] = group_df['volume_sma_20'] / group_df['volume_sma_60']
             group_df['acceleration_40/60'] = group_df['volume_sma_40'] / group_df['volume_sma_60']
         return group_df
@@ -297,7 +297,6 @@ class TechnicalCovariateTransform(CovariateTransform):
             for window in self.sma:
                 group_df[f'sma_vol_{window}'] = group_df['PX_VOLUME'].rolling(window=window, min_periods=1).mean()
         return group_df
-
 
     def _add_std_vol(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.std_vol is not None:
@@ -1338,5 +1337,3 @@ class FundamentalCovariateTransform(CovariateTransform):
             growth = (group_df['IS_EPS'] - safe_eps_prior) / safe_eps_prior
             group_df['eps_growth'] = growth.replace([np.inf, -np.inf], np.nan)
         return group_df
-
-
