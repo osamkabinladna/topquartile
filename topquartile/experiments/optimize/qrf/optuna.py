@@ -1,14 +1,11 @@
 import numpy as np
 import optuna
-from optuna.integration.wandb import WeightsAndBiasesCallback
 from types import SimpleNamespace
 from quantile_forest import RandomForestQuantileRegressor
 from sklearn.metrics import mean_squared_error
-import wandb
 
 from topquartile.modules.datamodule.dataloader import DataLoader
-from topquartile.modules.datamodule.transforms.covariate import (
-    TechnicalCovariateTransform)
+from topquartile.modules.datamodule.transforms.covariate import TechnicalCovariateTransform
 from topquartile.modules.datamodule.transforms.label import ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
@@ -24,7 +21,6 @@ covtrans_config = [(TechnicalCovariateTransform, dict(
     volatility=[10, 20, 40, 60, 120],
     volume_std=[10, 20, 40, 60, 120],
 ))]
-
 labeltrans_config = [(ExcessReturnTransform, dict(label_duration=LABEL_DURATION))]
 partition_config  = dict(n_splits=5, gap=2, max_train_size=504, test_size=60)
 
@@ -69,23 +65,15 @@ def train_one_fold(fold_id: int, cfg: SimpleNamespace) -> float:
     y_pred = model.predict(X_test.values, quantiles=[0.5])
     return float(np.sqrt(mean_squared_error(y_test, y_pred)))
 
-wandb_kwargs = dict(project="secret_project")
-wandbc = WeightsAndBiasesCallback(
-    wandb_kwargs = wandb_kwargs,
-    metric_name  = "avg_rmse",
-    as_multirun  = True
-)
-
-@wandbc.track_in_wandb()
 def objective(trial):
     cfg = SimpleNamespace(
-        n_estimators             = trial.suggest_int("n_estimators", 50, 800),
+        n_estimators             = trial.suggest_int("n_estimators", 30, 200),
         max_depth                = trial.suggest_categorical("max_depth", [8, 12, 16, 20, 25, 30]),
         max_leaf_nodes           = trial.suggest_categorical("max_leaf_nodes", [32, 64, 128, 256, 512]),
         criterion                = trial.suggest_categorical("criterion", ["squared_error", "absolute_error"]),
         min_samples_split        = trial.suggest_int("min_samples_split", 2, 20),
         min_samples_leaf         = trial.suggest_int("min_samples_leaf", 1, 15),
-        min_weight_fraction_leaf = trial.suggest_float("min_weight_fraction_leaf", 0.0, 0.2),
+        min_weight_fraction_leaf = trial.suggest_float("min_weight_fraction_leaf", 0.0, 0.4),
         min_impurity_decrease    = trial.suggest_float("min_impurity_decrease", 1e-7, 1e-2, log=True),
         ccp_alpha                = trial.suggest_float("ccp_alpha", 1e-6, 1e-2, log=True),
         max_features             = trial.suggest_float("max_features", 0.1, 1.0),
@@ -95,20 +83,17 @@ def objective(trial):
     fold_rmses = []
     for k in range(len(folds)):
         rmse = train_one_fold(k, cfg)
-        print(f'TRAINED FOLD {k} with RMSE:{rmse}')
+        print(f'TRAINED FOLD {k} with RMSE: {rmse}')
         fold_rmses.append(rmse)
 
-    avg_rmse   = float(np.mean(fold_rmses))
+    avg_rmse = float(np.mean(fold_rmses))
     print(f'AVERAGE RMSE: {avg_rmse}')
-
-    wandb.log({f"fold_{k}_rmse": rmse_k for k, rmse_k in enumerate(fold_rmses)})
-    wandb.log({"avg_rmse": avg_rmse})
 
     return avg_rmse
 
 if __name__ == "__main__":
     study = optuna.create_study(direction="minimize", study_name="testing123")
-    study.optimize(objective, n_trials=50, callbacks=[wandbc])
+    study.optimize(objective, n_trials=50)
 
     print(f"\nFinished {len(study.trials)} trials.")
     print("Best value (avg_rmse):", study.best_trial.value)

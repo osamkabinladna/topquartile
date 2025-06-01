@@ -167,7 +167,7 @@ class NaryLabelTransform(ExcessReturnTransform):
         if not isinstance(n_labels, int) or n_labels < 1:
             raise ValueError("n_labels must be a positive integer (>= 1).")
         self.n_labels = n_labels
-        self.label_col_name = f'n-ary-label'
+        self.label_col_name = f'label'
 
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
         """
@@ -179,7 +179,6 @@ class NaryLabelTransform(ExcessReturnTransform):
         :return: A Series containing the N-ary labels for the group.
         """
         labels_series = pd.Series(pd.NA, index=group.index, dtype='Int64')
-
         valid_returns = group[self.excess_return_col_name].dropna()
 
         if valid_returns.empty:
