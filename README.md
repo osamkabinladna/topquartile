@@ -1,5 +1,17 @@
 ![Cool logo](assets/img.png)
 
+# Installation
+
+1. Clone the repo
+```bash
+git clone https://github.com/osamkabinladna/topquartile.git
+```
+2. cd to the folder
+3. run this command
+```bash
+pip install -e .
+```
+
 # Folder Structure
 
 ```bash
