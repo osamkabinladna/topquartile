@@ -6,55 +6,63 @@ from quantile_forest import RandomForestQuantileRegressor
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import (
     TechnicalCovariateTransform, FundamentalCovariateTransform)
-from topquartile.modules.datamodule.transforms.label import ExcessReturnTransform
+from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform, ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
+LABEL_DURATION = 20
 
-covtrans_config = [
-    (
-        TechnicalCovariateTransform, 
-        dict(
-            sma=[20, 30],
-            volume_std=[10, 20, 40, 60, 120],
-            ema=[20, 30],
-            volatility=[120, 60, 40, 20],
-            turnover=[20, 40, 60, 120, 240]
-        )
-    ), 
-    (
-        FundamentalCovariateTransform, 
-        dict(adjusted_roic=True)
-    )
-]
+covtrans_config = [(
+    TechnicalCovariateTransform,
+    dict(sma=[20, 40, 60],
+         ema=[20, 40, 60],
+         turnover=[20, 40, 60, 120, 240],
+         macd=[(12, 26, 9)],
+         price_gap=[20, 40, 60],
+         price_ratio=[9, 19, 39, 59, 119],
+         acceleration_rate=True,
+         volatility=[10, 20, 40, 60, 120],
+         volume_std=[10, 20, 40, 60, 120]),
+)]
 
-labeltrans_config = [
-    (
-        ExcessReturnTransform, 
-        dict(label_duration=20, quantile=0.75)
-    )
-]
-dataloader = DataLoader(data_id='dec2024',
-                  partition_class=PurgedTimeSeriesPartition,
-                  covariate_transform=covtrans_config,
-                  label_transform=labeltrans_config).transform_covariates()
+labeltrans_config = [(ExcessReturnTransform, dict(label_duration=LABEL_DURATION))]
+partition_config = dict(n_splits=5, gap=2, max_train_size=504, test_size=60)
 
+dataloader = DataLoader(
+    data_id="covariates_may2025v2",
+    covariate_transform=covtrans_config,
+    label_transform=labeltrans_config,
+    partition_class=PurgedTimeSeriesPartition,
+    partition_kwargs=partition_config,
+)
 folds = dataloader.get_cv_folds()
 
-TARGET = "EXCESS_RETURN"
-DROP_COLS = [TARGET, "label", "INDEX_RETURN", "30d_stock_return", "ticker"]
+TARGET = f'excess_returns_{LABEL_DURATION}'
+
+DROP_COLS = [TARGET, f"index_returns_{LABEL_DURATION}", f"eq_returns_{LABEL_DURATION}", "ticker"]
+
+ffill_features = []
 
 def train_one_fold(fold_id: int, config) -> float:
     train_df, test_df = folds[fold_id]
+
+    print('THIS IS TRAIN COV', train_df.columns)
+
     train_df, test_df = train_df.dropna(), test_df.dropna()
 
-    X_train = train_df.drop(columns=DROP_COLS, errors="ignore")
+    X_train = train_df.drop(columns=DROP_COLS + ffill_features, errors="ignore")
     y_train = train_df[TARGET]
-    X_test  = test_df.drop(columns=DROP_COLS, errors="ignore")
+    X_test  = test_df.drop(columns=DROP_COLS + ffill_features, errors="ignore")
     y_test  = test_df[TARGET]
 
     model = RandomForestQuantileRegressor(
         n_estimators=config.n_estimators,
         max_depth=config.max_depth,
+        max_leaf_nodes=config.max_leaf_nodes,
+        criterion=config.criterion,
+        min_samples_split=config.min_samples_split,
+        ccp_alpha=config.ccp_alpha,
+        min_impurity_decrease=config.min_impurity_decrease,
+        bootstrap=config.bootstrap,
         min_samples_leaf=config.min_samples_leaf,
         max_features=config.max_features,
         n_jobs=-1,
@@ -66,7 +74,7 @@ def train_one_fold(fold_id: int, config) -> float:
     return rmse
 
 def main() -> None:
-    parent = wandb.init()
+    parent = wandb.init(project='secret_project', save_code=True)
     cfg         = parent.config
     parent_id   = parent.id
     parent_proj = parent.project
@@ -80,6 +88,9 @@ def main() -> None:
                 job_type=f"fold-{k}",
                 config=cfg,
                 reinit=True):
+
+            art = wandb.Artifact('source', type='code')
+            art.add_file('.')
             rmse_k = train_one_fold(k, cfg)
             wandb.log({"rmse": rmse_k})
             wandb.summary["rmse"] = rmse_k
