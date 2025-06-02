@@ -1,9 +1,3 @@
-def optimize():
-    raise NotImplementedError
-
-if __name__ == '__main__':
-    optimize()
-
 import numpy as np
 import wandb
 from sklearn.metrics import mean_squared_error
@@ -111,5 +105,5 @@ def main() -> None:
     parent.summary["avg_rmse"] = avg_rmse
     parent.finish()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()    
