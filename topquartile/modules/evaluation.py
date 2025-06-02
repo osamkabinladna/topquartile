@@ -13,7 +13,7 @@ class Evaluation:
         self.df = df
         self.results = []
 
-        self.df.sort_index()
+        self.df.sort_index(inplace=True)
 
     def partition_data(self) -> pd.DataFrame:
         results = []

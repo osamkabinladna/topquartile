@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 
 from topquartile.modules.datamodule.transforms.covariate import CovariateTransform
-from topquartile.modules.datamodule.transforms.label import LabelTransform
+from topquartile.modules.datamodule.transforms.label import LabelTransform, KMRFLabelTransform
 from topquartile.modules.datamodule.partitions import (
     BasePurgedTimeSeriesPartition,
     PurgedTimeSeriesPartition,
@@ -164,11 +164,14 @@ class DataLoader:
                     )
                 print(f" Applying {TransformClass.__name__} with params {params} (globally)")
                 transformer = TransformClass(df=self.data, root_path=self.root_path, **params)
-                self.data = transformer.transform()
+                if not isinstance(transformer, KMRFLabelTransform):
+                    self.data = transformer.transform()
+                else:
+                    self.data = transformer.transform(df=self.data)
 
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
             self._ffill_covariates()
-            # self._fill_dividends()
+            self._fill_dividends()
             self.data = self.data.replace('#NAME?', np.nan)
             self.data = self.data.apply(pd.to_numeric, errors='ignore')
 
@@ -473,4 +476,3 @@ class DataLoader:
                 raise ValueError("Data could not be loaded or is empty after processing, cannot generate folds.")
 
         return self._partition_data()
-#%%
