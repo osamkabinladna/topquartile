@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-class Evaluation:
+class EvaluationPartitioner:
     def __init__(self, df: pd.DataFrame,  n_train: int = 252, n_valid: int = 1):
         """
         :param df: first fold on the dataloader
