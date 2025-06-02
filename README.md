@@ -1,5 +1,69 @@
 ![Cool logo](assets/img.png)
 
+# Folder Structure
+
+├── README.md
+├── __pycache__
+├── assets
+│   └── img.png
+├── data
+├── misc
+│   ├── features_binary.txt
+│   ├── missing_features.txt
+│   └── quantile_predictions.csv
+├── params
+│   └── best_params.csv
+├── requirements.txt
+└── topquartile
+    ├── __init__.py
+    ├── __pycache__
+    │   ├── __init__.cpython-312.pyc
+    │   └── __init__.cpython-313.pyc
+    ├── data
+    │   ├── covariates_may2025v2.csv
+    │   ├── dec2024v2.csv
+    │   ├── ihsg_may2025.csv
+    │   └── macro_may2025v2.csv
+    ├── experiments
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   │   ├── __init__.cpython-312.pyc
+    │   │   └── __init__.cpython-313.pyc
+    │   ├── notebooks
+    │   │   ├── Regime Switching KN.ipynb
+    │   │   ├── dataloader_debug.ipynb
+    │   │   ├── dataloaderv2.ipynb
+    │   │   ├── feature_set.ipynb
+    │   │   ├── qrf.ipynb
+    │   │   └── tutorial.ipynb
+    │   ├── optimize
+    │   │   ├── __ init __.py
+    │   │   ├── __pycache__
+    │   │   ├── nary
+    │   │   ├── qrf
+    │   │   ├── regimes
+    │   │   └── train.py
+    │   ├── portfolio
+    │   └── train
+    │       ├── __init__.py
+    │       ├── nary.py
+    │       ├── qrf.py
+    │       └── regimes.py
+    └── modules
+        ├── __init__.py
+        ├── __pycache__
+        │   ├── __init__.cpython-312.pyc
+        │   └── __init__.cpython-313.pyc
+        ├── datamodule
+        │   ├── __init__.py
+        │   ├── __pycache__
+        │   ├── dataloader.py
+        │   ├── partitions.py
+        │   └── transforms
+        └── evaluation
+            ├── __init__.py
+            └── partitioner.py
+
 # Example of loading data
 
 ```python
