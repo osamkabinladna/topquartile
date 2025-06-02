@@ -6,7 +6,7 @@ from quantile_forest import RandomForestQuantileRegressor
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import (
     TechnicalCovariateTransform, FundamentalCovariateTransform)
-from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform
+from topquartile.modules.datamodule.transforms.label import BinaryLabelTransform, ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 
 LABEL_DURATION = 20
@@ -39,16 +39,25 @@ DROP_COLS = [TARGET, f"index_returns_{LABEL_DURATION}", f"eq_returns_{LABEL_DURA
 
 def train_one_fold(fold_id: int, config) -> float:
     train_df, test_df = folds[fold_id]
+
+    print('THIS IS TRAIN COV', train_df.columns)
+
     train_df, test_df = train_df.dropna(), test_df.dropna()
 
-    X_train = train_df.drop(columns=DROP_COLS, errors="ignore")
+    X_train = train_df.drop(columns=DROP_COLS + ffill_features, errors="ignore")
     y_train = train_df[TARGET]
-    X_test  = test_df.drop(columns=DROP_COLS, errors="ignore")
+    X_test  = test_df.drop(columns=DROP_COLS + ffill_features, errors="ignore")
     y_test  = test_df[TARGET]
 
     model = RandomForestQuantileRegressor(
         n_estimators=config.n_estimators,
         max_depth=config.max_depth,
+        max_leaf_nodes=config.max_leaf_nodes,
+        criterion=config.criterion,
+        min_samples_split=config.min_samples_split,
+        ccp_alpha=config.ccp_alpha,
+        min_impurity_decrease=config.min_impurity_decrease,
+        bootstrap=config.bootstrap,
         min_samples_leaf=config.min_samples_leaf,
         max_features=config.max_features,
         n_jobs=-1,
@@ -78,6 +87,9 @@ def main() -> None:
                 job_type=f"fold-{k}",
                 config=cfg,
                 reinit=True):
+
+            art = wandb.Artifact('source', type='code')
+            art.add_file('.')
             rmse_k = train_one_fold(k, cfg)
             wandb.log({"rmse": rmse_k})
             wandb.summary["rmse"] = rmse_k
