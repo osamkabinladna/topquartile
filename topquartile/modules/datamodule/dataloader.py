@@ -4,14 +4,18 @@ from typing import List, Tuple, Optional, Dict, Type
 import re
 from collections import defaultdict
 import warnings
+import numpy as np
 
 from topquartile.modules.datamodule.transforms.covariate import CovariateTransform
-from topquartile.modules.datamodule.transforms.label import LabelTransform
+from topquartile.modules.datamodule.transforms.label import LabelTransform, KMRFLabelTransform
 from topquartile.modules.datamodule.partitions import (
     BasePurgedTimeSeriesPartition,
     PurgedTimeSeriesPartition,
     PurgedGroupTimeSeriesPartition,
 )
+
+import warnings
+warnings.filterwarnings("ignore", category=pd.errors.DtypeWarning)
 
 
 class DataLoader:
@@ -53,11 +57,11 @@ class DataLoader:
         self.preds: Optional[pd.DataFrame] = None
 
         try:
-            root_path = Path(__file__).resolve().parent.parent.parent
+            self.root_path = Path(__file__).resolve().parent.parent.parent
         except NameError:
-            root_path = Path().resolve().parent.parent.parent
+            self.root_path = Path().resolve().parent.parent.parent
 
-        self.covariates_path = root_path / "data" / f"{self.data_id}.csv"
+        self.covariates_path = self.root_path / "data" / f"{self.data_id}.csv"
 
     def load_preds(self) -> pd.DataFrame:
         if self.data is None:
@@ -153,18 +157,23 @@ class DataLoader:
                 print(
                     f"Standardized self.data index to MultiIndex: {self.data.index.names} for global label transform.")
 
-            self.data.index = self.data.index.set_names(['TickerIndex', 'DateIndex'])
-
             for TransformClass, params in self.label_transform_config:
                 if not issubclass(TransformClass, LabelTransform):
                     raise ValueError(
                         "Invalid transform in label_transform_config: must subclass LabelTransform"
                     )
                 print(f" Applying {TransformClass.__name__} with params {params} (globally)")
-                transformer = TransformClass(df=self.data, **params)
-                self.data = transformer.transform()
+                transformer = TransformClass(df=self.data, root_path=self.root_path, **params)
+                if not isinstance(transformer, KMRFLabelTransform):
+                    self.data = transformer.transform()
+                else:
+                    self.data = transformer.transform(df=self.data)
 
             self.data.index = self.data.index.set_names(['ticker', 'Dates'])
+            self._ffill_covariates()
+            self._fill_dividends()
+            self.data = self.data.replace('#NAME?', np.nan)
+            self.data = self.data.apply(pd.to_numeric, errors='ignore')
 
         return self.data
 
@@ -278,6 +287,51 @@ class DataLoader:
                 return -1
         return -1
 
+    def _fill_dividends(self):
+        """
+        Bloomberg gives NaNs for non dividend paying companies,
+        it should be zero instead
+        """
+        # TODO: NOT WORKING FOR NOW LETS JUST IMPUTE THIS COLUMN
+        df_copy = self.data.copy()
+        # col = 'DVD_SH_12M'
+        #
+        # zero_div_tickers = (
+        #     df_copy[col]
+        #     .groupby(level='ticker', observed=False)
+        #     .apply(lambda s: s.isna().all())
+        # )
+        # zero_div_tickers = zero_div_tickers[zero_div_tickers].index
+        # print('ZERO DIV TICKERS', zero_div_tickers)
+        #
+        # for ticker in zero_div_tickers:
+        #     df_copy.loc[pd.IndexSlice[ticker, :], col] = 0.0
+
+        df_copy.drop(['DVD_SH_12M'], axis=1, inplace=True)
+
+        self.data = df_copy
+        return df_copy
+
+
+    def _ffill_covariates(self):
+        df_copy = self.data.copy()
+        df_copy = df_copy.sort_index(level='Dates')
+
+        ffill_features = [
+            "TOTAL_EQUITY", "BOOK_VAL_PER_SH", "REVENUE_PER_SH", "RETURN_COM_EQY",
+            "TOT_DEBT_TO_TOT_ASSET", "TOT_DEBT_TO_TOT_EQY",
+            "BS_TOT_LIAB2", "BS_TOT_ASSET", "IS_EPS"
+        ]
+
+        df_copy[ffill_features] = (
+            df_copy.groupby(level='ticker', observed=False)[ffill_features]
+            .ffill()
+        )
+
+        self.data = df_copy
+        return df_copy
+
+
     def _partition_data(self) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         if self.data is None or self.data.empty:
             print("Data not available for partitioning. Attempting to process...")
@@ -312,7 +366,7 @@ class DataLoader:
             {"train": [], "test": []} for _ in range(n_splits)
         ]
 
-        data_grouped_by_ticker = self.data.groupby(level="TickerIndex")
+        data_grouped_by_ticker = self.data.groupby(level="TickerIndex", observed=False)
         print(
             f"Partitioning data using {self.partitioner.__class__.__name__} for {n_splits} splits across {len(data_grouped_by_ticker)} tickers.")
 

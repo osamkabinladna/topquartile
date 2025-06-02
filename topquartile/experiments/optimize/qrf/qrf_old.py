@@ -13,34 +13,29 @@ LABEL_DURATION = 20
 
 covtrans_config = [(
     TechnicalCovariateTransform,
-    dict(sma=[20, 40, 60],
-         ema=[20, 40, 60],
-         turnover=[20, 40, 60, 120, 240],
-         macd=[(12, 26, 9)],
-         price_gap=[20, 40, 60],
-         price_ratio=[9, 19, 39, 59, 119],
-         acceleration_rate=True,
-         volatility=[10, 20, 40, 60, 120],
-         volume_std=[10, 20, 40, 60, 120]),
+    dict(
+        sma=[20, 30],
+        ema=[20, 30],
+        momentum_change=True,
+        volatility=[20, 30],
+    ),
 )]
 
-labeltrans_config = [(ExcessReturnTransform, dict(label_duration=LABEL_DURATION))]
-partition_config = dict(n_splits=5, gap=2, max_train_size=504, test_size=60)
+labeltrans_config = [(BinaryLabelTransform, dict(label_duration=20, quantile=0.75))]
+partition_config = dict(n_splits=5, gap=20, max_train_size=504, test_size=60)
 
 dataloader = DataLoader(
-    data_id="covariates_may2025v2",
+    data_id="dec2024v2",
     covariate_transform=covtrans_config,
     label_transform=labeltrans_config,
     partition_class=PurgedTimeSeriesPartition,
     partition_kwargs=partition_config,
 )
+
 folds = dataloader.get_cv_folds()
 
 TARGET = f'excess_returns_{LABEL_DURATION}'
-
-DROP_COLS = [TARGET, f"index_returns_{LABEL_DURATION}", f"eq_returns_{LABEL_DURATION}", "ticker"]
-
-ffill_features = []
+DROP_COLS = [TARGET, f"index_returns_{LABEL_DURATION}", f"eq_returns_{LABEL_DURATION}", "ticker", 'label']
 
 def train_one_fold(fold_id: int, config) -> float:
     train_df, test_df = folds[fold_id]
@@ -74,16 +69,20 @@ def train_one_fold(fold_id: int, config) -> float:
     return rmse
 
 def main() -> None:
-    parent = wandb.init(project='secret_project', save_code=True)
-    cfg         = parent.config
-    parent_id   = parent.id
+    project_name = 'qrf_experiments'
+    parent = wandb.init(
+        project=project_name,
+        config={}
+    )
+    cfg = parent.config
+    parent_id = parent.id
     parent_proj = parent.project
     wandb.finish()
 
     rmses = []
     for k in range(len(folds)):
         with wandb.init(
-                project=parent_proj,
+                project=project_name,
                 group=parent_id,
                 job_type=f"fold-{k}",
                 config=cfg,
@@ -98,12 +97,12 @@ def main() -> None:
 
     parent = wandb.init(
         id=parent_id,
-        project=parent_proj,
+        project=project_name,
         resume="allow")
     avg_rmse = float(np.mean(rmses))
     parent.log({"avg_rmse": avg_rmse})
     parent.summary["avg_rmse"] = avg_rmse
     parent.finish()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()

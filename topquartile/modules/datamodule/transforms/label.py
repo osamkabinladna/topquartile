@@ -1,6 +1,9 @@
 import pandas as pd
 import yfinance as yf  # Added import for yfinance
 from abc import ABC, abstractmethod  # Added imports for ABC
+from pathlib import Path
+import numpy as np
+from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
 
 class LabelTransform(ABC):
@@ -16,8 +19,8 @@ class LabelTransform(ABC):
 
 
 class ExcessReturnTransform(LabelTransform):
-    def __init__(self, df: pd.DataFrame, label_duration: int,
-                 index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
+    def __init__(self, df: pd.DataFrame, root_path,  label_duration: int,
+                 index_csv: str = "ihsg_may2025", price_column: str = 'PX_LAST',
                  ticker_level_name: str = 'TickerIndex',
                  date_level_name: str = 'DateIndex'):
         """
@@ -29,159 +32,62 @@ class ExcessReturnTransform(LabelTransform):
         :param date_level_name: Multiindex name for date
         """
         super().__init__(df)
+        self.root_path = root_path
         self.label_duration = label_duration
-        self.index_ticker = index_ticker
+        self.index_csv = index_csv
         self.price_column = price_column
         self.ticker_level_name = ticker_level_name
         self.date_level_name = date_level_name
 
         self.stock_return_col_name = f'{self.label_duration}d_stock_return'
         self.index_return_col_name = 'INDEX_RETURN'
-        self.excess_return_col_name = 'EXCESS_RETURN'
+        self.excess_return_col_name = f'excess_returns_{self.label_duration}'
 
     def _calculate_returns(self, series: pd.Series) -> pd.Series:
-        """Calculates percentage returns over a future period."""
+        """Calculates forward looking percentage returns over a future period."""
         future_price = series.shift(-self.label_duration)
         returns = ((future_price - series) / series) * 100
         return returns
 
     def _get_index_returns(self) -> pd.Series:
-        """Downloads index data and calculates its future returns."""
-        if self.date_level_name not in self.df.index.names:
-            raise ValueError(f"Date level '{self.date_level_name}' not found in DataFrame index.")
-
-        unique_dates = self.df.index.get_level_values(self.date_level_name).unique()
-
-        if not pd.api.types.is_datetime64_any_dtype(unique_dates.dtype):
-            try:
-                unique_dates = pd.to_datetime(unique_dates)
-            except Exception as e:
-                raise ValueError(
-                    f"Could not convert unique dates from level '{self.date_level_name}' "
-                    f"for yfinance download. Check data. Error: {e}"
-                ) from e
-
-        unique_dates = unique_dates.sort_values()
-        if unique_dates.empty:
-            raise ValueError(f"No dates found in the DataFrame's '{self.date_level_name}' index level.")
-
-        start_date = unique_dates.min()
-        required_end_date = unique_dates.max()
-
-        try:
-            index_data = yf.download(self.index_ticker, start=start_date, end=required_end_date + pd.Timedelta(days=1),
-                                     progress=False, auto_adjust=False)
-        except Exception as e:
-            raise ConnectionError(f"Failed to download index data for {self.index_ticker}: {e}") from e
-
-        if index_data.empty:
-            raise ValueError(
-                f"No data downloaded for index {self.index_ticker} for the date range {start_date} to {required_end_date}.")
-
-        index_data.index = pd.to_datetime(index_data.index)
-        price_col_yf = 'Close'
-
-        if price_col_yf not in index_data.columns:
-            raise KeyError(
-                f"'{price_col_yf}' column not found in downloaded index data. Available columns: {index_data.columns}")
-
-        price_data_selection = index_data[price_col_yf]
-
-        if isinstance(price_data_selection, pd.DataFrame):
-            if price_data_selection.shape[1] == 1:
-                price_series = price_data_selection.iloc[:, 0]
-            else:
-                raise TypeError(
-                    f"Selection of '{price_col_yf}' yielded DataFrame with multiple columns: {price_data_selection.columns}. Cannot proceed.")
-        elif isinstance(price_data_selection, pd.Series):
-            price_series = price_data_selection
-        else:
-            raise TypeError(f"Selection of '{price_col_yf}' yielded unexpected type: {type(price_data_selection)}")
-
-        index_returns = self._calculate_returns(price_series)
-
-        if not isinstance(index_returns, pd.Series):
-            raise TypeError(
-                f"_calculate_returns function unexpectedly returned a {type(index_returns)}, expected Series.")
-
-        index_returns.name = self.index_return_col_name
-
-        aligned_index_returns = index_returns.reindex(unique_dates)
-
-        nan_count = aligned_index_returns.isnull().sum()
-        if pd.api.types.is_scalar(nan_count):
-            if nan_count > 0:
-                print(f"Warning: {nan_count} NaN values found in index returns after aligning to DataFrame dates. ")
-        else:
-            raise TypeError(f"Calculation of NaN count failed. Expected scalar, got {type(nan_count)}. ")
-        return aligned_index_returns
-
+        self.ihsg = pd.read_csv(self.root_path / 'data' / f"{self.index_csv}.csv", index_col=0)
+        self.ihsg.index = pd.to_datetime(self.ihsg.index)
+        return self.ihsg
 
     def transform(self) -> pd.DataFrame:
         df_copy = self.df.copy()
+        ihsg = self._get_index_returns()
 
-        is_multiindex = isinstance(df_copy.index, pd.MultiIndex)
-        ticker_in_index = is_multiindex and self.ticker_level_name in df_copy.index.names
-        date_in_index = is_multiindex and self.date_level_name in df_copy.index.names
-
-        ticker_in_cols = self.ticker_level_name in df_copy.columns
-        current_date_index_name = df_copy.index.name if not is_multiindex else None
-
-        if not (ticker_in_index and date_in_index):
-            if ticker_in_cols and (current_date_index_name == self.date_level_name or date_in_index):
-                if not is_multiindex and current_date_index_name == self.date_level_name:
-                    df_copy = df_copy.set_index([self.ticker_level_name], append=True)
-                elif is_multiindex and date_in_index and not ticker_in_index:
-                    df_copy = df_copy.set_index(self.ticker_level_name, append=True)
-                else:
-                    df_copy = df_copy.reset_index().set_index([self.ticker_level_name, self.date_level_name])
-
-                if df_copy.index.names != [self.ticker_level_name, self.date_level_name]:
-                    try:
-                        df_copy = df_copy.reorder_levels([self.ticker_level_name, self.date_level_name])
-                    except KeyError as e:
-                        raise ValueError(
-                            f"Failed to reorder levels to [{self.ticker_level_name}, {self.date_level_name}]. Current levels: {df_copy.index.names}. Error: {e}")
-
-            elif not (ticker_in_index and date_in_index):
-                raise ValueError(
-                    f"ExcessReturnTransform expects '{self.ticker_level_name}' and '{self.date_level_name}' "
-                    f"to be in the index or '{self.ticker_level_name}' in columns and '{self.date_level_name}' as index name. "
-                    f"Current index: {df_copy.index.names if is_multiindex else [df_copy.index.name]}, Columns: {df_copy.columns.tolist()}"
-                )
-
-        df_copy = df_copy.sort_index(level=[self.ticker_level_name, self.date_level_name])
-
-        date_level_values = df_copy.index.get_level_values(self.date_level_name)
-        if not pd.api.types.is_datetime64_any_dtype(date_level_values.dtype):
-            try:
-                current_levels_arrays = [df_copy.index.get_level_values(name) for name in df_copy.index.names]
-                date_level_idx_for_array = df_copy.index.names.index(self.date_level_name)
-
-                current_levels_arrays[date_level_idx_for_array] = pd.to_datetime(date_level_values)
-
-                df_copy.index = pd.MultiIndex.from_arrays(current_levels_arrays, names=df_copy.index.names)
-            except Exception as e:
-                raise ValueError(
-                    f"Could not convert the '{self.date_level_name}' index level to datetime. "
-                    f"Please check the data. Error: {e}"
-                ) from e
-
-        df_copy[self.stock_return_col_name] = (
-            df_copy.groupby(level=self.ticker_level_name, group_keys=False)[self.price_column]
-            .apply(self._calculate_returns)
+        index_returns = (
+            self._calculate_returns(ihsg['PX_LAST'])
+            .rename(f'index_returns_{self.label_duration}')
         )
 
-        index_returns_series = self._get_index_returns()
+        eq_returns = (
+            df_copy
+            .groupby(level='ticker', group_keys=False, observed=False)['PX_LAST']
+            .apply(self._calculate_returns)
+            .rename(f'eq_returns_{self.label_duration}')
+        )
 
-        df_copy = df_copy.join(index_returns_series, on=self.date_level_name)
-        df_copy[self.excess_return_col_name] = df_copy[self.stock_return_col_name] - df_copy[self.index_return_col_name]
+        aligned_index = (
+            eq_returns
+            .index
+            .get_level_values('Dates')
+            .map(index_returns)
+        )
+
+        df_copy[eq_returns.name] = eq_returns
+        df_copy[index_returns.name] = aligned_index.values
+        df_copy[f'excess_returns_{self.label_duration}'] = (
+            df_copy[eq_returns.name] - df_copy[index_returns.name]
+        )
 
         return df_copy
 
 class BinaryLabelTransform(ExcessReturnTransform):
-    def __init__(self, df: pd.DataFrame, label_duration: int, quantile: float,
-                 index_ticker: str = "^JKSE", price_column: str = 'PX_LAST',
+    def __init__(self, df: pd.DataFrame, root_path,  label_duration: int, quantile: float,
+                 index_csv: str = "ihsg_may2025", price_column: str = 'PX_LAST',
                  ticker_level_name: str = 'TickerIndex',
                  date_level_name: str = 'DateIndex'):
         """
@@ -193,7 +99,7 @@ class BinaryLabelTransform(ExcessReturnTransform):
         :param ticker_level_name: Multiindex name for ticker
         :param date_level_name: Multiindex name for date
         """
-        super().__init__(df, label_duration, index_ticker, price_column,
+        super().__init__(df, root_path, label_duration, index_csv, price_column,
                          ticker_level_name, date_level_name)
         if not 0.0 <= quantile <= 1.0:
             raise ValueError("Quantile must be between 0.0 and 1.0.")
@@ -202,11 +108,7 @@ class BinaryLabelTransform(ExcessReturnTransform):
 
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
         """
-        TODO: Current implementation calculates quantiles over all returns before partitions, maybe we want to
-        create a flag to calculate it per partition?
-
         Assigns a binary label based on whether the excess return is in the top quantile.
-        Operates on a group (typically grouped by date).
         """
         valid_returns = group[self.excess_return_col_name].dropna()
 
@@ -268,7 +170,7 @@ class NaryLabelTransform(ExcessReturnTransform):
         if not isinstance(n_labels, int) or n_labels < 1:
             raise ValueError("n_labels must be a positive integer (>= 1).")
         self.n_labels = n_labels
-        self.label_col_name = f'n-ary-label'
+        self.label_col_name = f'label'
 
     def _assign_label(self, group: pd.DataFrame) -> pd.Series:
         """
@@ -280,7 +182,6 @@ class NaryLabelTransform(ExcessReturnTransform):
         :return: A Series containing the N-ary labels for the group.
         """
         labels_series = pd.Series(pd.NA, index=group.index, dtype='Int64')
-
         valid_returns = group[self.excess_return_col_name].dropna()
 
         if valid_returns.empty:
@@ -324,3 +225,116 @@ class NaryLabelTransform(ExcessReturnTransform):
             df_with_excess_returns[self.label_col_name] = self._assign_label(df_with_excess_returns)
 
         return df_with_excess_returns
+
+class KMRFLabelTransform(LabelTransform):
+    def __init__(self, df: pd.DataFrame, root_path: Path,
+                 index_file: str = "ihsg_may2025.csv",
+                 price_column: str = "PX_LAST",
+                 kama_n: int = 10, gamma: float = 0.5):
+        self.df = df
+        self.price_column = price_column
+        self.kama_n = kama_n
+        self.gamma = gamma
+
+        index_path = Path(index_file) if "/" in index_file else (root_path / "data" / index_file)
+        self.index_df = pd.read_csv(index_path, parse_dates=["Dates"])
+        self.index_df.set_index("Dates", inplace=True)
+        self.index_price = self.index_df[price_column]
+
+    def calculate_kama(self, price, n=None, fast=2, slow=30):
+        n = n or self.kama_n
+        delta = price.diff()
+        signal = abs(price - price.shift(n))
+        noise = delta.abs().rolling(n).sum()
+        er = signal / noise.replace(0, np.nan)
+        fast_sc = 2 / (fast + 1)
+        slow_sc = 2 / (slow + 1)
+        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2
+
+        kama = [price.iloc[0]]
+        for i in range(1, len(price)):
+            k = sc.iloc[i] if not np.isnan(sc.iloc[i]) else slow_sc ** 2
+            kama.append(kama[-1] + k * (price.iloc[i] - kama[-1]))
+        return pd.Series(kama, index=price.index)
+
+    def calculate_filter(self, kama, n):
+        kama_diff = kama.diff()
+        std = kama_diff.rolling(n).std()
+        return self.gamma * std
+
+    def compute_msr_state(self, price):
+        returns = np.log(price / price.shift(1)).dropna()
+        model = MarkovRegression(returns, k_regimes=2, trend='c', switching_variance=True)
+        res = model.fit(disp=False)
+        smoothed_probs = res.smoothed_marginal_probabilities[1]  # High-variance state
+        state = (smoothed_probs > 0.5).astype(int)
+        state.index = returns.index
+        return state
+
+    def assign_regimes(self, price: pd.Series) -> pd.Series:
+        kama = self.calculate_kama(price)
+        filt = self.calculate_filter(kama, self.kama_n)
+        msr_state = self.compute_msr_state(price)
+
+        # Drop and up logic for KAMA
+        kama_diff = kama - kama.rolling(self.kama_n).min()
+        drop = kama.rolling(self.kama_n).max() - kama
+        condition_up = kama_diff > filt
+        condition_down = drop > filt
+
+        # Align and clean
+        condition_up = condition_up.reindex(price.index).fillna(False)
+        condition_down = condition_down.reindex(price.index).fillna(False)
+        msr_state = msr_state.reindex(price.index).fillna(0)
+
+        # Create regime series
+        regime = pd.Series(index=price.index, dtype='float')
+        regime[(msr_state == 0) & condition_down] = 0  # LV bearish
+        regime[(msr_state == 0) & condition_up] = 1  # LV bullish
+        regime[(msr_state == 1) & condition_down] = 2  # HV bearish
+        regime[(msr_state == 1) & condition_up] = 3  # HV bullish
+
+        # Debug counts
+        print("Raw regime counts:\n", regime.value_counts(dropna=False))
+        return regime
+
+    def extend_labels(self, regime: pd.Series) -> pd.Series:
+        label = pd.Series(index=regime.index, dtype='float').fillna(0)
+
+        i = 0
+        while i < len(regime):
+            if regime.iloc[i] == 1:  # LV Bullish
+                start = i
+                while i < len(regime) and regime.iloc[i] != 3:
+                    i += 1
+                while i < len(regime) and regime.iloc[i] == 3:
+                    i += 1
+                label.iloc[start:i] = 1  # Bullish
+            elif regime.iloc[i] == 2:  # HV Bearish
+                start = i
+                while i < len(regime) and regime.iloc[i] != 0:
+                    i += 1
+                while i < len(regime) and regime.iloc[i] == 0:
+                    i += 1
+                label.iloc[start:i] = -1  # Bearish
+            else:
+                i += 1
+        return label.fillna(0)
+
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+
+        regime_raw = self.assign_regimes(self.index_price)
+        regime_label = self.extend_labels(regime_raw)
+
+        if df.index.nlevels == 2:
+            date_level = df.index.get_level_values("Dates")
+        else:
+            date_level = df.index
+
+        aligned_raw = date_level.map(regime_raw).astype(float)
+        aligned_label = date_level.map(regime_label).astype(float)
+
+        df["regime_label_raw"] = aligned_raw
+        df["regime_label"] = aligned_label
+        return df

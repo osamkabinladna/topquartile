@@ -58,4 +58,4 @@ command:
   - ${env}
   - python
   - -m
-  - topquartile.experiments.optimize.qrf_wandb
+  - topquartile.experiments.optimize.qrf_old
