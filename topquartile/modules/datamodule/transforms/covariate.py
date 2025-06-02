@@ -12,6 +12,13 @@ from statsmodels.tsa.stattools import adfuller
 from scipy.stats import entropy
 from scipy.signal import welch
 import itertools
+from scipy.signal import find_peaks_cwt
+from statsmodels.tsa.stattools import pacf
+from antropy import perm_entropy
+from antropy import sample_entropy
+from tsfresh.feature_extraction.feature_calculators import spkt_welch_density
+from pathlib import Path
+
 
 class CovariateTransform(ABC):
     def __init__(self, df: pd.DataFrame):
@@ -29,7 +36,73 @@ class CovariateTransform(ABC):
 
 
 class TechnicalCovariateTransform(CovariateTransform):
-    def __init__(self, df: pd.DataFrame, sma: Optional[List[int]] = None, ema: Optional[List[int]] = None,
+    sma: Optional[List[int]]
+    ema: Optional[List[int]]
+    rsi: Optional[List[int]]
+    macd: bool
+    macd_signal: bool
+    macd_histogram: bool
+    obv: bool
+    roc: Optional[List[int]]
+    volatility: Optional[List[int]]
+    volume_sma: Optional[List[int]]
+    volume_std: Optional[List[int]]
+    vroc: Optional[List[int]]
+    price_gap: Optional[List[int]]
+    price_vs_sma: Optional[List[int]]
+    momentum_change: bool
+    ultimate: bool
+    awesome: bool
+    max_return: Optional[List[int]]
+    cmo: Optional[List[int]]
+    trix: Optional[List[int]]
+    atr: bool
+    plus_di: bool
+    minus_di: bool
+    bb: bool
+    ulcer: bool
+    mean_price_volatility: Optional[List[int]]
+    force_index: bool
+    mfi: bool
+    mass_index: bool
+    cci: Optional[List[int]]
+    stc: bool
+    amih_l: bool
+    kyle_l: bool
+    corwin_schultz: bool
+    approximate_entropy: bool
+    adfuller: bool
+    binned_entropy: bool
+    cid_ce: bool
+    count_above_mean: bool
+    count_below_mean: bool
+    energy_ratio_chunks: bool
+    fft_aggregated: bool
+    first_location_maximum: bool
+    first_location_minimum: bool
+    fourier_entropy: bool
+    index_mass_quantile: Optional[float]
+    kurtosis: bool
+    last_location_of_maximum: bool
+    lempel_ziv_complexity: bool
+    linear_trend_timewise: bool
+    longest_strike_above_mean: bool
+    longest_strike_below_mean: bool
+    mean_change: bool
+    mean_abs_change: bool
+    mean_second_derivative_central: bool
+    number_cwt_peaks: bool
+    permutation_entropy: bool
+    sample_entropy: bool
+    skewness: bool
+    spkt_welch_density: bool
+    time_reversal_asymmetry_statistic: bool
+    variation_coefficient: bool
+    turnover: Optional[List[int]]
+    beta: Optional[List[int]]
+
+    def __init__(self, df: pd.DataFrame,
+                 sma: Optional[List[int]] = None, ema: Optional[List[int]] = None,
                  rsi: Optional[List[int]] = None, macd: bool = False, macd_signal: bool = False,
                  macd_histogram: bool = False, obv: bool = False, roc: Optional[List[int]] = None,
                  volatility: Optional[List[int]] = None, volume_sma: Optional[List[int]] = None,
@@ -37,17 +110,17 @@ class TechnicalCovariateTransform(CovariateTransform):
                  price_gap: Optional[List[int]] = None,
                  price_vs_sma: Optional[List[int]] = None,
                  momentum_change: bool = False,
-                 price_ratio = None,
-                 ultimate: bool = False, #TBC KN
-                 awesome: bool = False, #TBC KN
-                 max_return: Optional[List[int]] = None, #TBC KN
-                 cmo: Optional[List[int]] = None, #TBC KN
-                 trix: Optional[List[int]] = None, #TBC KN
-                 atr: bool = False, #TBC KN
-                 plus_di: bool = False, #TBC KN
-                 minus_di: bool = False, #TBC KN
-                 bb: bool = False, #TBC KN
-                 ulcer: bool = False, #TBC KN
+                 price_ratio=None,
+                 ultimate: bool = False,  # TBC KN
+                 awesome: bool = False,  # TBC KN
+                 max_return: Optional[List[int]] = None,  # TBC KN
+                 cmo: Optional[List[int]] = None,  # TBC KN
+                 trix: Optional[List[int]] = None,  # TBC KN
+                 atr: bool = False,  # TBC KN
+                 plus_di: bool = False,  # TBC KN
+                 minus_di: bool = False,  # TBC KN
+                 bb: bool = False,  # TBC KN
+                 ulcer: bool = False,  # TBC KN
                  mean_price_volatility: Optional[List[int]] = None,
                  force_index: bool = False,
                  mfi: bool = False,
@@ -57,10 +130,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                  amih_l: bool = False,
                  kyle_l: bool = False,
                  corwin_schultz: bool = False,
-                 autocorrelation: Optional[List[int]] = None,
-                 agg_autocorrelation: Optional[List[int]] = None,
                  approximate_entropy: bool = False,
-                 ar_coefficient: Optional[int] = None,
                  adfuller: bool = False,
                  binned_entropy: bool = False,
                  cid_ce: bool = False,
@@ -77,7 +147,24 @@ class TechnicalCovariateTransform(CovariateTransform):
                  lempel_ziv_complexity: bool = False,
                  linear_trend_timewise: bool = False,
                  longest_strike_above_mean: bool = False,
-                 turnover: Optional[List[int]] = None, beta: Optional[List[int]] = None):
+                 longest_strike_below_mean: bool = False,
+                 mean_change: bool = False,
+                 mean_abs_change: bool = False,
+                 mean_second_derivative_central: bool = False,
+                 number_cwt_peaks: bool = False,
+                 permutation_entropy: bool = False,
+                 sample_entropy: bool = False,
+                 skewness: bool = False,
+                 spkt_welch_density: bool = False,
+                 time_reversal_asymmetry_statistic: bool = False,
+                 variation_coefficient: bool = False,
+                 autocorrelation: Optional[List[int]] = None,
+                 agg_autocorrelation: Optional[List[int]] = None,
+                 ar_coefficient: Optional[List[int]] = None,
+                 partial_autocorrelation: Optional[List[int]] = None,
+                 turnover: Optional[List[int]] = None,
+                 adfuller_window: int = 50,
+                 beta: Optional[List[int]] = None):
         """
         :param df: DataFrame containing covariates
         :param sma: List of window sizes for Simple Moving Average
@@ -86,10 +173,10 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param macd: Calculate MACD (12-ema - 26-ema). Required for signal/histogram
         :param macd_signal: Calculate MACD signal line (9-ema of MACD)
         :param macd_histogram: Calculate MACD histogram (MACD - signal)
-        :param obv: Calculate On-Balance Volume. Requires 'VOLUME'
+        :param obv: Calculate On-Balance Volume. Requires 'VOLUME,'
         :param roc: List of periods for Price Rate of Change
         :param volatility: List of window sizes for rolling standard deviation of daily returns
-        :param volume_sma: List of window sizes for Simple Moving Average of Volume. Requires 'VOLUME'
+        :param volume_sma: List of window sizes for Simple Moving Average of Volume. Requires 'VOLUME,'
         :param volume_std: List of window sizes for Rolling Standard Deviation of Volume. Requires 'VOLUME'
         :param vroc: List of periods for Volume Rate of Change. Requires 'VOLUME'
         :param price_gap: List of window sizes for Price - SMA(window)
@@ -136,6 +223,19 @@ class TechnicalCovariateTransform(CovariateTransform):
         :param lempel_ziv_complexity: Calculate the Lempel-Ziv complexity of the time series
         :param linear_trend_timewise: Calculate linear trend components (p-value, correlation, intercept, slope, stderr)
         :param longest_strike_above_mean: Calculate the length of the longest consecutive subsequence above the mean
+        :param longest_strike_below_mean: Calculate the length of the longest consecutive subsequence below the mean.
+        :param mean_change: Calculate the average of first differences over the rolling window.
+        :param mean_abs_change: Calculate the average of absolute first differences over the rolling window.
+        :param mean_second_derivative_central: Calculate the average central approximation of the second derivative.
+        :param number_cwt_peaks: Compute number of peaks in CWT-smoothed signal using ricker wavelet.
+        :param partial_autocorrelation: List of lags at which to compute the partial autocorrelation
+        :param permutation_entropy: Calculate the permutation entropy as a measure of time series complexity.
+        :param sample_entropy: Calculate the sample entropy to assess time series complexity.
+        :param skewness: Calculate the sample skewness (G1) of the time series.
+        :param spkt_welch_density: Calculate spectral Welch density over rolling windows using tsfresh.
+        :param time_reversal_asymmetry_statistic: Whether to calculate the time reversal asymmetry statistic (TRAS) from the time series.
+        :param variation_coefficient: Whether to calculate the variation coefficient (standard deviation / mean) from the time series.
+        :param adfuller_window: Integer rolling window used to compute the ADF statistic.
         """
         super().__init__(df)
 
@@ -153,19 +253,17 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.vroc = vroc
         self.price_gap = price_gap
         self.price_vs_sma = price_vs_sma
-        self.turnover = turnover
-        self.beta = beta
         self.momentum_change = momentum_change
-        self.ultimate = ultimate #TBC KN
-        self.awesome = awesome #TBC KN
-        self.max_return = max_return #TBC KN
-        self.trix = trix #TBC KN
-        self.atr = atr #TBC KN
-        self.cmo = cmo #TBC KN
-        self.plus_di = plus_di #TBC KN
-        self.minus_di = minus_di #TBC KN
-        self.bb = bb #TBC KN
-        self.ulcer = ulcer #TBC KN
+        self.ultimate = ultimate
+        self.awesome = awesome
+        self.max_return = max_return
+        self.cmo = cmo
+        self.trix = trix
+        self.atr = atr
+        self.plus_di = plus_di
+        self.minus_di = minus_di
+        self.bb = bb
+        self.ulcer = ulcer
         self.mean_price_volatility = mean_price_volatility
         self.force_index = force_index
         self.mfi = mfi
@@ -175,10 +273,8 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.amih_l = amih_l
         self.kyle_l = kyle_l
         self.corwin_schultz = corwin_schultz
-        self.autocorrelation = autocorrelation
-        self.agg_autocorrelation = agg_autocorrelation
+        self.adfuller_window = adfuller_window
         self.approximate_entropy = approximate_entropy
-        self.ar_coefficient = ar_coefficient
         self.adfuller = adfuller
         self.binned_entropy = binned_entropy
         self.cid_ce = cid_ce
@@ -195,93 +291,143 @@ class TechnicalCovariateTransform(CovariateTransform):
         self.lempel_ziv_complexity = lempel_ziv_complexity
         self.linear_trend_timewise = linear_trend_timewise
         self.longest_strike_above_mean = longest_strike_above_mean
+        self.longest_strike_below_mean = longest_strike_below_mean
+        self.mean_change = mean_change
+        self.mean_abs_change = mean_abs_change
+        self.mean_second_derivative_central = mean_second_derivative_central
+        self.number_cwt_peaks = number_cwt_peaks
+        self.permutation_entropy = permutation_entropy
+        self.sample_entropy = sample_entropy
+        self.skewness = skewness
+        self.spkt_welch_density = spkt_welch_density
+        self.time_reversal_asymmetry_statistic = time_reversal_asymmetry_statistic
+        self.variation_coefficient = variation_coefficient
         self.price_ratio = price_ratio
         self.required_base = set()
 
         self.required_base.update(['PX_LAST'])
         if any([self.obv, self.volume_sma, self.volume_std, self.vroc]):
-            self.required_base.update('VOLUME')
+            self.required_base.add('PX_VOLUME')
+
 
         missing_base = [col for col in self.required_base if col not in self.df.columns]
         print('THIS IS COLUMNS', self.df.columns)
         if missing_base:
             raise ValueError(f"Missing required base columns in DataFrame: {missing_base}")
+        self.turnover = turnover
+        self.beta = beta
 
+    def group_transform(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        ticker = group_df.name
+        print(f"\nSTART group_transform for {ticker}")
 
-    def group_transform(self, group: pd.DataFrame) -> pd.DataFrame:
-        group = group.sort_index()
-        group = self._add_sma(group)
-        group = self._add_ema(group)
-        group = self._add_rsi(group)
-        group = self._add_macd(group)
-        group = self._add_obv(group)
-        group = self._add_roc(group)
-        group = self._add_volatility(group)
-        group = self._add_volume_sma(group)
-        group = self._add_volume_std(group)
-        group = self._add_vroc(group)
-        group = self._add_price_gap(group)
-        group = self._add_price_vs_sma(group)
-        group = self._add_turnover(group)
-        group = self._add_beta(group)
-        group = self._add_momentum_change(group)
-        group = self._add_ultimate(group) #TBC KN
-        group = self._add_awesome(group) #TBC KN
-        group = self._add_max_return(group) #TBC KN
-        group = self._add_cmo(group) #TBC KN
-        group = self._add_trix(group) #TBC KN
-        group = self._add_atr(group) #TBC KN
-        group = self._add_minus_di(group) #TBC KN
-        group = self._add_bb(group) #TBC KN
-        group = self._add_ulcer(group) #TBC KN
-        group = self._add_mean_price_volatility(group)  # TBC KN
-        group = self._add_mfi(group)
-        group = self._add_force_index(group)
-        group = self._add_mass_index(group)
-        group = self._add_cci(group)
-        group = self._add_stc(group)
-        group = self._add_amih_l(group) 
-        group = self._add_kyle_l(group)
-        group = self._add_corwin_schultz(group) 
-        group = self._add_autocorrelation(group)
-        group = self._add_agg_autocorrelation(group)
-        group = self._add_approximate_entropy(group)
-        group = self._add_ar_coefficient(group)
-        group = self._add_adfuller(group)
-        group = self._add_binned_entropy(group)
-        group = self._add_cid_ce(group)
-        group = self._add_count_above_mean(group)
-        group = self._add_count_below_mean(group)
-        group = self._add_energy_ratio_chunks(group)
-        group = self._add_fft_aggregated(group)
-        group = self._add_first_location_maximum(group)
-        group = self._add_first_location_minimum(group)
-        group = self._add_fourier_entropy(group)
-        group = self._add_index_mass_quantile(group)
-        group = self._add_kurtosis(group)
-        group = self._add_last_location_of_maximum(group)
-        group = self._add_lempel_ziv_complexity(group)
-        group = self._add_linear_trend_timewise(group)
-        group = self._add_longest_strike_above_mean(group)
-        group = self._add_price_ratio(group)
+        transform_methods = [
+            self._add_sma,
+            self._add_ema,
+            self._add_rsi,
+            self._add_macd,
+            self._add_obv,
+            self._add_roc,
+            self._add_cmo,
+            self._add_trix,
+            self._add_atr,
+            self._add_mfi,
+            self._add_force_index,
+            self._add_stc,
+            self._add_bb,
+            self._add_ultimate,
+            self._add_awesome,
+            self._add_plus_di,
+            self._add_minus_di,
+            self._add_max_return,
+            self._add_price_gap,
+            self._add_price_vs_sma,
+            self._add_momentum_change,
+            self._add_ulcer,
+            self._add_mean_price_volatility,
+            self._add_approximate_entropy,
+            self._add_adfuller,
+            self._add_binned_entropy,
+            self._add_cid_ce,
+            self._add_count_above_mean,
+            self._add_count_below_mean,
+            self._add_energy_ratio_chunks,
+            self._add_fft_aggregated,
+            self._add_first_location_maximum,
+            self._add_first_location_minimum,
+            self._add_fourier_entropy,
+            self._add_index_mass_quantile,
+            self._add_kurtosis,
+            self._add_last_location_of_maximum,
+            self._add_lempel_ziv_complexity,
+            self._add_linear_trend_timewise,
+            self._add_longest_strike_above_mean,
+            self._add_longest_strike_below_mean,
+            self._add_mean_change,
+            self._add_mean_abs_change,
+            self._add_mean_second_derivative_central,
+            self._add_number_cwt_peaks,
+            self._add_permutation_entropy,
+            self._add_sample_entropy,
+            self._add_skewness,
+            self._add_spkt_welch_density,
+            self._add_time_reversal_asymmetry_statistic,
+            self._add_variation_coefficient,
+            self._add_volatility,
+            self._add_volume_sma,
+            self._add_volume_std,
+            self._add_vroc,
+            self._add_turnover,
+            self._add_beta,
+            self._add_mass_index,
+            self._add_cci,
+            self._add_amih_l,
+            self._add_kyle_l,
+            self._add_corwin_schultz,
+        ]
 
-        return group
+        try:
+            group_df = group_df.sort_index()
+
+            for method in transform_methods:
+                print(f"Applying {method.__name__}")
+                group_df = method(group_df)
+
+            print(f"END group_transform for {ticker}")
+            return group_df
+
+        except Exception as e:
+            print(f"[ERROR] group_transform failed for ticker: {ticker} in {method.__name__} with error: {e}")
+            raise
 
     def transform(self) -> pd.DataFrame:
         transformed_df = self.df.groupby('ticker', group_keys=True, observed=False).apply(self.group_transform)
         return transformed_df.sort_index()
-
 
     def _add_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.sma is not None:
             for window in self.sma:
                 group_df[f'sma_{window}'] = group_df['PX_LAST'].rolling(window=window, min_periods=window).mean()
         return group_df
+    
+    def _add_vol_accrelaration(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        self.sma_vol = [10, 20, 40, 60]
+        self._add_sma_vol(group_df)
+        group_df['vol_acc_10_20'] = group_df['sma_vol_10'] / group_df['sma_vol_20']
+        group_df['vol_acc_10_20'] = group_df['sma_vol_10'] / group_df['sma_vol_20']
+        group_df['vol_acc_10_40'] = group_df['sma_vol_10'] / group_df['sma_vol_40']
+        group_df['vol_acc_10_60'] = group_df['sma_vol_10'] / group_df['sma_vol_60']
+        group_df['vol_acc_20_40'] = group_df['sma_vol_20'] / group_df['sma_vol_40']
+        group_df['vol_acc_20_60'] = group_df['sma_vol_20'] / group_df['sma_vol_60']
+        group_df['vol_acc_40_60'] = group_df['sma_vol_40'] / group_df['sma_vol_60']
+        return group_df
+    
 
     def _add_ema(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.ema is not None:
             for window in self.ema:
-                group_df[f'ema_{window}'] = group_df['PX_LAST'].ewm(span=window, adjust=False, min_periods=window).mean()
+                group_df[f'ema_{window}'] = group_df['PX_LAST'].ewm(span=window, adjust=False,
+                                                                    min_periods=window).mean()
         return group_df
 
     def _add_rsi(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -331,11 +477,11 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_obv(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.obv:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping OBV for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping OBV for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             price_diff = group_df['PX_LAST'].diff()
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
             signed_volume = pd.Series(np.sign(price_diff) * volume).fillna(0)
             group_df['obv'] = signed_volume.cumsum()
         return group_df
@@ -358,14 +504,16 @@ class TechnicalCovariateTransform(CovariateTransform):
         if self.roc is not None:
             for window in self.roc:
                 shifted_price = group_df['PX_LAST'].shift(window)
-                group_df[f'roc_{window}'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
+                group_df[f'roc_{window}'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf],
+                                                                                                np.nan) * 100
         return group_df
 
     def _add_momentum_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.momentum_change:
             if 'roc_126' not in group_df.columns:
                 shifted_price = group_df['PX_LAST'].shift(126)
-                group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf], np.nan) * 100
+                group_df[f'roc_126'] = ((group_df['PX_LAST'] / shifted_price) - 1).replace([np.inf, -np.inf],
+                                                                                           np.nan) * 100
             group_df['momentum_change'] = group_df['roc_126'].diff(126)
         return group_df
 
@@ -378,30 +526,33 @@ class TechnicalCovariateTransform(CovariateTransform):
 
     def _add_volume_sma(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_sma:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping Volume SMA for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume SMA for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_sma:
-                group_df[f'volume_sma_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).mean()
+                group_df[f'volume_sma_{window}'] = group_df['PX_VOLUME'].rolling(window=window,
+                                                                                 min_periods=window).mean()
         return group_df
 
     def _add_volume_std(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.volume_std is not None:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping Volume StDev for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping Volume StDev for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.volume_std:
-                group_df[f'volume_std_{window}'] = group_df['VOLUME'].rolling(window=window, min_periods=window).std()
+                group_df[f'volume_std_{window}'] = group_df['PX_VOLUME'].rolling(window=window,
+                                                                                 min_periods=window).std()
         return group_df
 
     def _add_vroc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.vroc is not None:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn(f"Skipping VROC for group: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn(f"Skipping VROC for group: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
             for window in self.vroc:
-                shifted_volume = group_df['VOLUME'].shift(window)
-                group_df[f'vroc_{window}'] = ((group_df['VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf], np.nan) * 100
+                shifted_volume = group_df['PX_VOLUME'].shift(window)
+                group_df[f'vroc_{window}'] = ((group_df['PX_VOLUME'] / shifted_volume) - 1).replace([np.inf, -np.inf],
+                                                                                                    np.nan) * 100
         return group_df
 
     def _add_turnover(self, group_df: pd.DataFrame) -> pd.DataFrame:
@@ -414,13 +565,14 @@ class TechnicalCovariateTransform(CovariateTransform):
         if self.beta:
             raise NotImplementedError
         return group_df
-    
-    def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_ultimate(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.ultimate:
             required_cols = ['PX_LOW', 'PX_HIGH', 'PX_LAST']
             if not all(col in group_df.columns for col in required_cols):
-                    warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)", UserWarning)
-                    return group_df
+                warnings.warn("Skipping Ultimate Oscillator: required columns missing (High, Low, PX_LAST)",
+                              UserWarning)
+                return group_df
 
             close = group_df['PX_LAST']
             high = group_df['PX_HIGH']
@@ -437,30 +589,30 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['ultimate'] = ((4 * a1) + (2 * a2) + a3) / 7
 
         return group_df
-    
-    def _add_awesome(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_awesome(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.awesome:
             if 'PX_HIGH' not in group_df.columns or 'PX_LOW' not in group_df.columns:
                 warnings.warn("Skipping Awesome Oscillator: 'High' or 'Low' column not found.", UserWarning)
                 return group_df
 
-            median_price = (group_df['HIGH'] + group_df['LOW']) / 2
+            median_price = (group_df['PX_HIGH'] + group_df['PX_LOW']) / 2
             short_ma = median_price.rolling(window=5, min_periods=5).mean()
             long_ma = median_price.rolling(window=34, min_periods=34).mean()
 
             group_df['awesome_oscillator'] = short_ma - long_ma
         return group_df
-    
-    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_max_return(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.max_return is not None:
             for window in self.max_return:
                 max_ret = (
-                    group_df['PX_LAST'] / group_df['PX_LAST'].shift(1).rolling(window=window).min() - 1
+                        group_df['PX_LAST'] / group_df['PX_LAST'].shift(1).rolling(window=window).min() - 1
                 ).replace([np.inf, -np.inf], np.nan)
                 group_df[f'max_return_{window}'] = max_ret
         return group_df
-    
-    def _add_cmo(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_cmo(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.cmo is not None:
             close = group_df['PX_LAST']
             delta = close.diff()
@@ -475,8 +627,8 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'cmo_{window}'] = cmo
 
         return group_df
-    
-    def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_trix(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.trix:
             close = group_df['PX_LAST']
             n = 21
@@ -490,8 +642,8 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['trix'] = trix
 
         return group_df
-    
-    def _add_atr(self, group_df: pd.DataFrame) -> pd.DataFrame: #TBC KN
+
+    def _add_atr(self, group_df: pd.DataFrame) -> pd.DataFrame:  # TBC KN
         if self.atr:
             high = group_df['PX_HIGH']
             low = group_df['PX_LOW']
@@ -548,7 +700,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['plus_di'] = (dm_smoothed / atr) * 100
 
         return group_df
-    
+
     def _add_minus_di(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.minus_di:
             required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
@@ -588,12 +740,13 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['minus_di'] = (dm_smoothed / atr) * 100
 
         return group_df
-    
+
     def _add_bb(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.bb:
             required_cols = ['PX_HIGH', 'PX_LOW', 'PX_LAST']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Bollinger Bands: required columns missing (PX_HIGH, PX_LOW, PX_LAST)", UserWarning)
+                warnings.warn("Skipping Bollinger Bands: required columns missing (PX_HIGH, PX_LOW, PX_LAST)",
+                              UserWarning)
                 return group_df
 
             n = 20
@@ -613,7 +766,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['bb_position'] = (close - lower_band) / (upper_band - lower_band).replace(0, np.nan)
 
         return group_df
-    
+
     def _add_ulcer(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.ulcer:
             return group_df
@@ -633,11 +786,12 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['ulcer_index'] = ulcer_index
         return group_df
-    
+
     def _add_mean_price_volatility(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.mean_price_volatility is not None:
             if not all(col in group_df.columns for col in ['PX_LAST', 'PX_HIGH', 'PX_LOW']):
-                warnings.warn("Skipping Mean Price Volatility: Missing required columns (PX_LAST, PX_HIGH, PX_LOW)", UserWarning)
+                warnings.warn("Skipping Mean Price Volatility: Missing required columns (PX_LAST, PX_HIGH, PX_LOW)",
+                              UserWarning)
                 return group_df
 
             tp = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
@@ -648,28 +802,28 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'mean_std_{window}'] = ema_std
 
         return group_df
-    
+
     def _add_force_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.force_index:
-            if 'VOLUME' not in group_df.columns:
-                warnings.warn("Skipping Force Index: 'VOLUME' column not found.", UserWarning)
+            if 'PX_VOLUME' not in group_df.columns:
+                warnings.warn("Skipping Force Index: 'PX_VOLUME' column not found.", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
 
             group_df['force_index'] = (close - prior_close) * volume
         return group_df
-    
+
     def _add_mfi(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.mfi:
-            if not all(col in group_df.columns for col in ['High', 'Low', 'PX_LAST', 'VOLUME']):
-                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, VOLUME)", UserWarning)
+            if not all(col in group_df.columns for col in ['PX_HIGH', 'PX_LOW', 'PX_LAST', 'PX_VOLUME']):
+                warnings.warn("Skipping MFI: required columns missing (High, Low, PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
-            typical_price = (group_df['High'] + group_df['Low'] + group_df['PX_LAST']) / 3
-            raw_money_flow = typical_price * group_df['VOLUME']
+            typical_price = (group_df['PX_HIGH'] + group_df['PX_LOW'] + group_df['PX_LAST']) / 3
+            raw_money_flow = typical_price * group_df['PX_VOLUME']
             tp_diff = tp_diff = pd.to_numeric(typical_price.diff(), errors="coerce")
 
             positive_flow = raw_money_flow.where(tp_diff > 0, 0)
@@ -683,7 +837,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['mfi_21'] = group_df['mfi_21'].replace([np.inf, -np.inf], np.nan)
 
         return group_df
-    
+
     def _add_mass_index(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.mass_index:
             if 'PX_HIGH' not in group_df.columns or 'PX_LOW' not in group_df.columns:
@@ -701,7 +855,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['mass_index'] = mass.rolling(window=25, min_periods=25).sum()
 
         return group_df
-        
+
     def _add_cci(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.cci is not None:
             if not all(col in group_df.columns for col in ['PX_LAST', 'PX_HIGH', 'PX_LOW']):
@@ -717,7 +871,7 @@ class TechnicalCovariateTransform(CovariateTransform):
                 group_df[f'cci_{window}'] = cci.replace([np.inf, -np.inf], np.nan)
 
         return group_df
-    
+
     def _add_stc(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.stc:
             c = group_df['PX_LAST']
@@ -744,19 +898,20 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['stc'] = stc
 
         return group_df
-    
+
     def _add_amih_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.amih_l:
-            required_cols = ['PX_LAST', 'VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                warnings.warn("Skipping Amihoud Illiquidity: required columns missing (PX_LAST, PX_VOLUME)",
+                              UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
-            dollar_volume = close * group_df['VOLUME']
+            dollar_volume = close * group_df['PX_VOLUME']
 
             ema1 = dollar_volume.ewm(span=21, adjust=False, min_periods=21).mean()
             ema2 = returns.ewm(span=21, adjust=False, min_periods=21).mean()
@@ -764,8 +919,8 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['amih_l'] = (np.abs(ema2) / ema1) * 1_000_000
 
         return group_df
-    
-    def _rolling_beta(self, y: pd.Series, x: pd.Series, window: int) -> pd.Series: #TBC, rolling beta added without previous definition
+
+    def _rolling_beta(self, y: pd.Series, x: pd.Series, window: int) -> pd.Series:
         betas = []
         for i in range(len(y)):
             if i < window - 1:
@@ -779,16 +934,16 @@ class TechnicalCovariateTransform(CovariateTransform):
                     beta = np.cov(yi, xi)[0, 1] / np.var(xi)
                     betas.append(beta)
         return pd.Series(betas, index=y.index)
-    
+
     def _add_kyle_l(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.kyle_l:
-            required_cols = ['PX_LAST', 'VOLUME']
+            required_cols = ['PX_LAST', 'PX_VOLUME']
             if not all(col in group_df.columns for col in required_cols):
-                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, VOLUME)", UserWarning)
+                warnings.warn("Skipping Kyle's Lambda: required columns missing (PX_LAST, PX_VOLUME)", UserWarning)
                 return group_df
 
             close = group_df['PX_LAST']
-            volume = group_df['VOLUME']
+            volume = group_df['PX_VOLUME']
             prior_close = close.shift(1)
             returns = ((close / prior_close) - 1).replace([np.inf, -np.inf], np.nan)
 
@@ -799,7 +954,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             group_df['kyle_l'] = self._rolling_beta(returns, vd, window=21)
 
         return group_df
-    
+
     def _add_corwin_schultz(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.corwin_schultz:
             return group_df
@@ -833,71 +988,13 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         return group_df
 
-    def _add_autocorrelation(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if self.autocorrelation is None:
-            return group_df
-
-        for lag in self.autocorrelation:
-            group_df[f'autocorr_lag_{lag}'] = group_df['PX_LAST'].rolling(window=lag + 1).apply(
-                lambda x: autocorrelation(x, lag), raw=False
-            )
-
-        return group_df
-
-    def _add_agg_autocorrelation(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if self.agg_autocorrelation is None:
-            return group_df
-
-        lags = self.agg_autocorrelation
-
-        for agg_func in ['mean', 'std', 'median']:
-            def safe_agg(x, lags=lags):
-                try:
-                    vals = [autocorrelation(x, lag) for lag in lags]
-                    vals = [v for v in vals if isinstance(v, (int, float)) and not np.isnan(v)]
-                    if not vals:
-                        return np.nan
-                    return getattr(np, agg_func)(vals)
-                except:
-                    return np.nan
-
-            group_df[f'agg_autocorr_{agg_func}'] = group_df['PX_LAST'].rolling(
-                window=max(lags) + 1
-            ).apply(safe_agg, raw=False)
-
-        return group_df
-    
     def _add_approximate_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.approximate_entropy:
             return group_df
-    
+
         group_df['approx_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: approximate_entropy(x, 2, 0.2), raw=False
         )
-
-        return group_df
-    
-    def _add_ar_coefficient(self, group_df: pd.DataFrame) -> pd.DataFrame:
-        if self.ar_coefficient is None:
-            return group_df
-
-        k = self.ar_coefficient
-
-        def extract_phi(x):
-            try:
-                model = AutoReg(x, lags=k, old_names=False).fit()
-                return [model.params.get(f'L{i}.PX_LAST', np.nan) for i in range(1, k + 1)]
-            except Exception:
-                return [np.nan] * k
-
-        phi_cols = [f'ar_coeff_phi_{i}' for i in range(k)]
-
-        ar_matrix = group_df['PX_LAST'].rolling(window=k + 1).apply(
-            lambda x: pd.Series(extract_phi(x)), raw=False
-        )
-
-        for i, col in enumerate(phi_cols):
-            group_df[col] = ar_matrix.apply(lambda row: row[i] if isinstance(row, list) else np.nan)
 
         return group_df
 
@@ -905,25 +1002,40 @@ class TechnicalCovariateTransform(CovariateTransform):
         if not self.adfuller:
             return group_df
 
-        group_df['adfuller'] = group_df['PX_LAST'].rolling(window=50).apply(
-            lambda x: adfuller(x, autolag='AIC')[0] if len(x.dropna()) > 1 else np.nan,
-            raw=False
+        def adf_stat(series):
+            try:
+                if series.nunique() <= 1 or series.isna().all():
+                    return np.nan
+                result = adfuller(series.dropna(), autolag='AIC')
+                return result[1]
+            except Exception as e:
+                print(f"[ADF ERROR] {series.name}: {e}")
+                return np.nan
+
+        group_df["adfuller"] = (
+            group_df["PX_LAST"]
+            .rolling(self.adfuller_window, min_periods=self.adfuller_window)
+            .apply(adf_stat, raw=False)
         )
         return group_df
-    
+
     def _add_binned_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.binned_entropy:
             return group_df
 
-        group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
-            lambda x: (
-                -np.sum((counts := np.histogram(x.dropna(), bins=10)[0]) / np.sum(counts) * np.log((counts / np.sum(counts))[counts > 0]))
-                if len(x.dropna()) > 0 else np.nan
-            ),
-            raw=False
+        def safe_binned_entropy(x):
+            try:
+                hist, _ = np.histogram(x, bins=10, density=True)
+                hist = hist[hist > 0]  # Avoid log(0)
+                return entropy(hist)
+            except Exception:
+                return np.nan
+
+        group_df['binned_entropy'] = group_df['PX_LAST'].rolling(window=10, min_periods=10).apply(
+            safe_binned_entropy, raw=False
         )
         return group_df
-    
+
     def _add_cid_ce(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.cid_ce:
             return group_df
@@ -934,7 +1046,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_count_above_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.count_above_mean:
             return group_df
@@ -944,7 +1056,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_count_below_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.count_below_mean:
             return group_df
@@ -955,7 +1067,6 @@ class TechnicalCovariateTransform(CovariateTransform):
         )
         return group_df
 
-    
     def _add_energy_ratio_chunks(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.energy_ratio_chunks:
             return group_df
@@ -969,7 +1080,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_fft_aggregated(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.fft_aggregated:
             return group_df
@@ -989,7 +1100,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             )
 
         return group_df
-    
+
     def _add_first_location_maximum(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.first_location_maximum:
             return group_df
@@ -999,7 +1110,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_first_location_minimum(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.first_location_minimum:
             return group_df
@@ -1009,7 +1120,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_fourier_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.fourier_entropy:
             return group_df
@@ -1021,7 +1132,7 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_index_mass_quantile(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if self.index_mass_quantile is None:
             return group_df
@@ -1030,14 +1141,14 @@ class TechnicalCovariateTransform(CovariateTransform):
 
         group_df['index_mass_quantile'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: (
-                np.searchsorted(np.cumsum(np.abs(x.dropna())), 
+                np.searchsorted(np.cumsum(np.abs(x.dropna())),
                                 q * np.sum(np.abs(x.dropna()))) / len(x.dropna())
                 if len(x.dropna()) > 0 else np.nan
             ),
             raw=False
         )
         return group_df
-    
+
     def _add_kurtosis(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.kurtosis:
             return group_df
@@ -1045,14 +1156,15 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['kurtosis'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: (
                 (
-                    ((len(x) - 1) / ((len(x) - 2) * (len(x) - 3))) *
-                    ((len(x) + 1) * ((x - x.mean())**4).mean() / ((x - x.mean())**2).mean()**2 - 3 * (len(x) - 1))
+                        ((len(x) - 1) / ((len(x) - 2) * (len(x) - 3))) *
+                        ((len(x) + 1) * ((x - x.mean()) ** 4).mean() / ((x - x.mean()) ** 2).mean() ** 2 - 3 * (
+                                    len(x) - 1))
                 ) if len(x.dropna()) >= 4 else np.nan
             ),
             raw=False
         )
         return group_df
-    
+
     def _add_last_location_of_maximum(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.last_location_of_maximum:
             return group_df
@@ -1065,52 +1177,94 @@ class TechnicalCovariateTransform(CovariateTransform):
             raw=False
         )
         return group_df
-    
+
     def _add_lempel_ziv_complexity(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.lempel_ziv_complexity:
             return group_df
 
+        def lempel_ziv_complexity_bin(seq: str) -> int:
+            i, l, k, complexity = 0, 1, 1, 1
+            n = len(seq)
+            while True:
+                if seq[i:i + k] not in seq[0:i + k - 1]:
+                    complexity += 1
+                    i += k
+                    k = 1
+                    if i + k > n:
+                        break
+                else:
+                    k += 1
+                    if i + k > n:
+                        break
+            return complexity
+
+        def complexity_rolling(x):
+            s = x.dropna().to_numpy()
+            if len(s) == 0:
+                return np.nan
+            median = np.median(s)
+            bin_seq = ''.join(['1' if v > median else '0' for v in s])
+            return lempel_ziv_complexity_bin(bin_seq)
+
         group_df['lempel_ziv_complexity'] = group_df['PX_LAST'].rolling(window=50).apply(
-            lambda x: (
-                (lambda s: (
-                    (lambda b: (
-                        sum(
-                            1 for i in range(len(b))
-                            if not any(b[i:i+k] not in b[:i]
-                                    for k in range(1, len(b)-i+1))
-                        ) + 1
-                    ))(''.join(['1' if v > np.median(s) else '0' for v in s]))
-                ))(x.dropna().to_numpy())
-            ) if len(x.dropna()) > 0 else np.nan,
-            raw=False
+            complexity_rolling, raw=False
         )
+
         return group_df
-    
+
     def _add_linear_trend_timewise(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.linear_trend_timewise:
             return group_df
 
-        def linreg_vals(x):
-            x = x.dropna().to_numpy()
-            if len(x) < 2:
-                return [np.nan] * 5
-            t = np.arange(len(x))
-            slope, intercept = np.polyfit(t, x, 1)
+        p_vals, corrs, intercepts, slopes, stderrs = [], [], [], [], []
+
+        for i in range(len(group_df)):
+            if i < 49:
+                p_vals.append(np.nan)
+                corrs.append(np.nan)
+                intercepts.append(np.nan)
+                slopes.append(np.nan)
+                stderrs.append(np.nan)
+                continue
+
+            raw_window = group_df['PX_LAST'].iloc[i - 49:i + 1]
+            window = raw_window.dropna().to_numpy()
+
+            if len(window) < 2:
+                p_vals.append(np.nan)
+                corrs.append(np.nan)
+                intercepts.append(np.nan)
+                slopes.append(np.nan)
+                stderrs.append(np.nan)
+                continue
+
+            t = np.arange(len(window))
+
+            slope, intercept = np.polyfit(t, window, 1)
             y_pred = intercept + slope * t
-            residuals = x - y_pred
+            residuals = window - y_pred
             stderr = np.std(residuals)
-            corr = np.corrcoef(t, x)[0, 1]
-            p_val = 2 * (1 - abs(corr))
-            return [p_val, corr, intercept, slope, stderr]
+            corr = np.corrcoef(t, window)[0, 1] if len(window) > 1 else np.nan
+            p_val = 2 * (1 - abs(corr)) if not np.isnan(corr) else np.nan
 
-        result = group_df['PX_LAST'].rolling(window=50).apply(
-            lambda x: pd.Series(linreg_vals(x)), raw=False
-        )
+            p_vals.append(p_val)
+            corrs.append(corr)
+            intercepts.append(intercept)
+            slopes.append(slope)
+            stderrs.append(stderr)
 
-        group_df[['lintrend_p', 'lintrend_corr', 'lintrend_intercept', 'lintrend_slope', 'lintrend_stderr']] = result
+        result_df = pd.DataFrame({
+            'lintrend_p': p_vals,
+            'lintrend_corr': corrs,
+            'lintrend_intercept': intercepts,
+            'lintrend_slope': slopes,
+            'lintrend_stderr': stderrs
+        }, index=group_df.index)
+
+        group_df = pd.concat([group_df, result_df], axis=1)
 
         return group_df
-    
+
     def _add_longest_strike_above_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
         if not self.longest_strike_above_mean:
             return group_df
@@ -1118,13 +1272,157 @@ class TechnicalCovariateTransform(CovariateTransform):
         group_df['longest_strike_above_mean'] = group_df['PX_LAST'].rolling(window=50).apply(
             lambda x: (
                 max(
-                    (sum(1 for _ in g) for k, g in itertools.groupby(x > x.mean()) if k),
+                    (sum(1 for _ in g) for k, g in itertools.groupby((x > x.mean()).values) if k),
                     default=np.nan
                 ) if len(x.dropna()) > 0 else np.nan
             ),
             raw=False
         )
 
+        return group_df
+
+    def _add_longest_strike_below_mean(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.longest_strike_below_mean:
+            return group_df
+
+        group_df['longest_strike_below_mean'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                max(
+                    (sum(1 for _ in g) for k, g in itertools.groupby((x < x.mean()).values) if k),
+                    default=np.nan
+                ) if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_mean_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.mean_change:
+            return group_df
+
+        group_df['mean_change'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.mean(np.diff(x.dropna())) if len(x.dropna()) > 1 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_mean_abs_change(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.mean_abs_change:
+            return group_df
+
+        group_df['mean_abs_change'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.mean(np.abs(np.diff(x.dropna()))) if len(x.dropna()) > 1 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_mean_second_derivative_central(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.mean_second_derivative_central:
+            return group_df
+
+        group_df['mean_second_derivative_central'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                np.mean(0.5 * (x.dropna()[2:] - 2 * x.dropna()[1:-1] + x.dropna()[:-2]))
+                if len(x.dropna()) >= 3 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_number_cwt_peaks(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.number_cwt_peaks:
+            return group_df
+
+        group_df['number_cwt_peaks'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                len(find_peaks_cwt(x.dropna().to_numpy(), widths=np.arange(1, 10)))
+                if len(x.dropna()) > 0 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_permutation_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.permutation_entropy:
+            return group_df
+
+        group_df['permutation_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: perm_entropy(x.dropna().to_numpy()) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
+
+        return group_df
+
+    def _add_sample_entropy(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.sample_entropy:
+            return group_df
+
+        group_df['sample_entropy'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: sample_entropy(x.dropna().to_numpy()) if len(x.dropna()) > 0 else np.nan,
+            raw=False
+        )
+
+        return group_df
+
+    def _add_skewness(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.skewness:
+            return group_df
+
+        group_df['skewness'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (
+                ((np.sqrt(len(x)) * np.mean((x - x.mean()) ** 3)) /
+                 (np.std(x, ddof=0) ** 3)) if len(x.dropna()) > 2 else np.nan
+            ),
+            raw=False
+        )
+        return group_df
+
+    def _add_spkt_welch_density(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.spkt_welch_density:
+            return group_df
+
+        def safe_spkt(x):
+            try:
+                result = spkt_welch_density(x.dropna())
+                return result[1] if len(result) > 1 else np.nan
+            except Exception:
+                return np.nan
+
+        group_df['spkt_welch_density'] = group_df['PX_LAST'].rolling(window=50, min_periods=50).apply(
+            safe_spkt, raw=False
+        )
+
+        return group_df
+
+    def _add_time_reversal_asymmetry_statistic(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.time_reversal_asymmetry_statistic:
+            return group_df
+
+        def tras(x, lag=1):
+            x = x.dropna().to_numpy()
+            n = len(x)
+            if n <= 2 * lag:
+                return np.nan
+            return np.mean((x[2 * lag:] ** 2 * x[:-2 * lag]) - (x[lag:-lag] * x[lag:-lag]))
+
+        group_df['time_reversal_asymmetry_statistic'] = group_df['PX_LAST'].rolling(window=50).apply(
+            tras, raw=False
+        )
+
+        return group_df
+
+    def _add_variation_coefficient(self, group_df: pd.DataFrame) -> pd.DataFrame:
+        if not self.variation_coefficient:
+            return group_df
+
+        group_df['variation_coefficient'] = group_df['PX_LAST'].rolling(window=50).apply(
+            lambda x: (np.std(x) / np.mean(x)) if np.mean(x) != 0 else np.nan,
+            raw=False
+        )
         return group_df
 
 
@@ -1240,7 +1538,7 @@ class FundamentalCovariateTransform(CovariateTransform):
                         continue
                     q_decimal = q_percent / 100.0
                     try:
-                        group_df[f'pe_band_{window}_{q_percent}'] = group_df[pe_col_name].rolling(window=window, min_periods=max(1, int(window*q_decimal))).quantile(q_decimal, interpolation='linear')
+                        group_df[f'pe_band_{window}_{q_percent}'] = group_df[pe_col_name].rolling(window=window, min_periods=1).quantile(q_decimal, interpolation='linear')
                     except Exception as e:
                         warnings.warn(f"Could not calculate pe_band_{window}_{q_percent} for group '{group_df['ticker'].iloc[0]}'. Error: {e}", UserWarning)
 
@@ -1309,5 +1607,3 @@ class FundamentalCovariateTransform(CovariateTransform):
             growth = (group_df['IS_EPS'] - safe_eps_prior) / safe_eps_prior
             group_df['eps_growth'] = growth.replace([np.inf, -np.inf], np.nan)
         return group_df
-
-
