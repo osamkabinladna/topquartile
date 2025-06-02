@@ -46,7 +46,7 @@ BEST_PARAMS_QRF = dict(
     random_state=42,
 )
 
-OUT_CSV = Path("qrf_quantile_predsv2.csv")
+OUT_CSV = Path("qrf_preds.csv")
 OUT_CSV.unlink(missing_ok=True)
 
 covtrans_config = [(
