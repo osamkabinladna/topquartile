@@ -25,7 +25,7 @@ TURNOVER
 IHSG price (as the first column after dates kalau bisa)
 
 
-di excel yg berbeda - macro indicators
+macro indicators
 -------------------
 VIX Index
 10Y Indonesian Government Bond Yield
