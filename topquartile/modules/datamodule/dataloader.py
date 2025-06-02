@@ -35,7 +35,6 @@ class DataLoader:
         self.data_id = data_id
         self.covariate_transform_config = covariate_transform or []
         self.label_transform_config = label_transform or []
-        self.cols2drop = cols2drop or ["NEWS_SENTIMENT_DAILY_AVG"]
         self.prediction_length = prediction_length
         self.label_per_partition = label_per_partition
 
@@ -62,55 +61,6 @@ class DataLoader:
             self.root_path = Path().resolve().parent.parent.parent
 
         self.covariates_path = self.root_path / "data" / f"{self.data_id}.csv"
-
-    def load_preds(self) -> pd.DataFrame:
-        if self.data is None:
-            print("Data not loaded. Processing data...")
-            try:
-                self._process_data()
-            except FileNotFoundError:
-                print(f"ERROR: Data file not found at {self.covariates_path}")
-                raise
-            except Exception as e:
-                print(f"Error during _process_data: {e}")
-                raise
-
-        if self.data is None or self.data.empty:
-            raise ValueError("Data could not be loaded or is empty after processing.")
-
-        print(f"Separating last {self.prediction_length} rows per ticker for predictions.")
-        self.data = self.data.sort_index()
-
-        preds_group_key = 'ticker'
-        if isinstance(self.data.index, pd.MultiIndex) and 'ticker' in self.data.index.names:
-            pass
-        elif 'ticker' not in self.data.columns:
-            if isinstance(self.data.index, pd.MultiIndex) and 'TickerIndex' in self.data.index.names:
-                preds_group_key = 'TickerIndex'
-            else:
-                raise ValueError("load_preds: 'ticker' not found as column or index level for grouping.")
-
-        self.preds = (
-            self.data.groupby(preds_group_key, group_keys=False)
-            .tail(self.prediction_length)
-            .copy()
-        )
-
-        if not isinstance(self.data.index, pd.DatetimeIndex):
-            if not (isinstance(self.data.index, pd.MultiIndex) and isinstance(self.data.index.get_level_values(-1),
-                                                                              pd.DatetimeIndex)):
-                pass
-
-        if not isinstance(self.preds.index, pd.DatetimeIndex):
-            if not (isinstance(self.preds.index, pd.MultiIndex) and isinstance(self.preds.index.get_level_values(-1),
-                                                                               pd.DatetimeIndex)):
-                pass
-
-        remaining_index = self.data.index.difference(self.preds.index)
-        self.data = self.data.loc[remaining_index]
-
-        print(f"Predictions shape: {self.preds.shape}, Remaining data shape: {self.data.shape}")
-        return self.preds
 
     def _process_data(self):
         self._load_data()
