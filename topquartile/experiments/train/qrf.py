@@ -1,22 +1,16 @@
-def train():
-    raise NotImplementedError
-
-if __name__ == '__main__':
-    train()
-
-    import os
+import os
 import gc
 import psutil
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from quantile_forest import RandomForestQuantileRegressor
-
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import TechnicalCovariateTransform
 from topquartile.modules.datamodule.transforms.label import ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
-from topquartile.modules.evaluation import Evaluation
+from topquartile.modules.evaluation.partitioner import EvaluationPartitioner
+
 
 _proc = psutil.Process(os.getpid())
 
@@ -52,7 +46,8 @@ BEST_PARAMS_QRF = dict(
     random_state=42,
 )
 
-OUT_CSV = Path("qrf_quantile_predsv2.csv")
+
+OUT_CSV = Path("qrf_preds.csv")
 OUT_CSV.unlink(missing_ok=True)
 
 covtrans_config = [(
