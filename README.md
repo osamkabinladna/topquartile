@@ -2,6 +2,7 @@
 
 # Folder Structure
 
+```bash
 ├── README.md
 ├── __pycache__
 ├── assets
@@ -63,6 +64,7 @@
         └── evaluation
             ├── __init__.py
             └── partitioner.py
+```
 
 # Example of loading data
 
