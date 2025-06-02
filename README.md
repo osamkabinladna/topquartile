@@ -1,13 +1,24 @@
 ![Cool logo](assets/img.png)
 
+# Installation
+
+1. Clone the repo
+```bash
+git clone https://github.com/osamkabinladna/topquartile.git
+```
+2. cd to the folder
+3. run this command
+```bash
+pip install -e .
+```
+
 # Folder Structure
 
 ```bash
 ├── README.md
-├── __pycache__
 ├── assets
 │   └── img.png
-├── data
+├── data -> u put the data here!!
 ├── misc
 │   ├── features_binary.txt
 │   ├── missing_features.txt
@@ -17,9 +28,6 @@
 ├── requirements.txt
 └── topquartile
     ├── __init__.py
-    ├── __pycache__
-    │   ├── __init__.cpython-312.pyc
-    │   └── __init__.cpython-313.pyc
     ├── data
     │   ├── covariates_may2025v2.csv
     │   ├── dec2024v2.csv
@@ -27,9 +35,6 @@
     │   └── macro_may2025v2.csv
     ├── experiments
     │   ├── __init__.py
-    │   ├── __pycache__
-    │   │   ├── __init__.cpython-312.pyc
-    │   │   └── __init__.cpython-313.pyc
     │   ├── notebooks
     │   │   ├── Regime Switching KN.ipynb
     │   │   ├── dataloader_debug.ipynb
@@ -39,12 +44,10 @@
     │   │   └── tutorial.ipynb
     │   ├── optimize
     │   │   ├── __ init __.py
-    │   │   ├── __pycache__
     │   │   ├── nary
     │   │   ├── qrf
     │   │   ├── regimes
     │   │   └── train.py
-    │   ├── portfolio
     │   └── train
     │       ├── __init__.py
     │       ├── nary.py
@@ -52,9 +55,6 @@
     │       └── regimes.py
     └── modules
         ├── __init__.py
-        ├── __pycache__
-        │   ├── __init__.cpython-312.pyc
-        │   └── __init__.cpython-313.pyc
         ├── datamodule
         │   ├── __init__.py
         │   ├── __pycache__
@@ -106,13 +106,28 @@ data = dataloader.transform_data() # as a whole
 # How to optimize hyperparameters using wandb sweeps
 
 1. cd to where u have the yaml file
-2. run this command
+3. run this command
 ```bash
 wandb sweep <name of yaml file>
 ```
-3. copy the wandb agent command output
-4. cd to top level topquartile folder (the one that does not have __init__ files)
-5. run the wandb agent command, for example
+3. copy the wandb sweep command output
+4. go to the top level topquartile folder
+5. paste the wandb agent command
+6. run the wandb agent command, for example
 ```bash
 wandb agent repres/topquartile/qkr7gyoq
 ``` 
+
+# How to train a model
+
+1. go to top level topquartile folder
+2. run this command
+```bash
+python -m topquartile.experiments.train.qrf
+python -m topquartile.experiments.train.nary
+python -m topquartile.experiments.train.regimes
+```
+
+
+
+
