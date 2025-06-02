@@ -5,12 +5,12 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from quantile_forest import RandomForestQuantileRegressor
-
 from topquartile.modules.datamodule.dataloader import DataLoader
 from topquartile.modules.datamodule.transforms.covariate import TechnicalCovariateTransform
 from topquartile.modules.datamodule.transforms.label import ExcessReturnTransform
 from topquartile.modules.datamodule.partitions import PurgedTimeSeriesPartition
 from topquartile.modules.evaluation.partitioner import EvaluationPartitioner
+
 
 _proc = psutil.Process(os.getpid())
 
@@ -45,6 +45,7 @@ BEST_PARAMS_QRF = dict(
     n_jobs=-1,
     random_state=42,
 )
+
 
 OUT_CSV = Path("qrf_preds.csv")
 OUT_CSV.unlink(missing_ok=True)

@@ -1,1 +1,62 @@
 method: bayes
+metric:
+  name: f1
+  goal: maximize
+
+parameters:
+  n_estimators:
+    distribution: int_uniform
+    min: 50
+    max: 800
+
+  max_depth:
+    distribution: categorical
+    values: [8, 12, 16, 20, 25, 30]
+
+  max_leaf_nodes:
+    distribution: categorical
+    values: [32, 64, 128, 256, 512]
+
+  criterion:
+    values: ["squared_error", "absolute_error"]
+
+  min_samples_split:
+    distribution: int_uniform
+    min: 2
+    max: 20
+
+  min_samples_leaf:
+    distribution: int_uniform
+    min: 1
+    max: 15
+
+  min_weight_fraction_leaf:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+
+  min_impurity_decrease:
+    distribution: log_uniform_values
+    min: 1e-7
+    max: 1e-2
+
+  ccp_alpha:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-2
+
+  max_features:
+    distribution: uniform
+    min: 0.1
+    max: 1.0
+
+  bootstrap:
+    values: [true, false]
+
+
+command:
+  - ${env}
+  - python
+  - -m
+  - topquartile.experiments.optimize.regimes_wandb
+  
