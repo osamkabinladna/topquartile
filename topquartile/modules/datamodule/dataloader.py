@@ -15,8 +15,8 @@ from topquartile.modules.datamodule.partitions import (
 )
 
 import warnings
-warnings.filterwarnings("ignore", category=pd.errors.DtypeWarning)
 
+warnings.filterwarnings("ignore", category=pd.errors.DtypeWarning)
 
 class DataLoader:
     def __init__(
@@ -238,25 +238,8 @@ class DataLoader:
         return -1
 
     def _fill_dividends(self):
-        """
-        Bloomberg gives NaNs for non dividend paying companies,
-        it should be zero instead
-        """
         # TODO: NOT WORKING FOR NOW LETS JUST IMPUTE THIS COLUMN
         df_copy = self.data.copy()
-        # col = 'DVD_SH_12M'
-        #
-        # zero_div_tickers = (
-        #     df_copy[col]
-        #     .groupby(level='ticker', observed=False)
-        #     .apply(lambda s: s.isna().all())
-        # )
-        # zero_div_tickers = zero_div_tickers[zero_div_tickers].index
-        # print('ZERO DIV TICKERS', zero_div_tickers)
-        #
-        # for ticker in zero_div_tickers:
-        #     df_copy.loc[pd.IndexSlice[ticker, :], col] = 0.0
-
         df_copy.drop(['DVD_SH_12M'], axis=1, inplace=True)
 
         self.data = df_copy

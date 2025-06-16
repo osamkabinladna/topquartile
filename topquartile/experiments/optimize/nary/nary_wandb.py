@@ -102,7 +102,7 @@ def objective(trial):
     print(f"AVERAGE F1 Score: {avg_f1}")
     return -avg_f1  # we minimize in Optuna, so invert F1
 
-if _name_ == "_main_":
+if __name__ == "_main_":
     study = optuna.create_study(direction="minimize", study_name="rf_classifier_quantiles")
     study.optimize(objective, n_trials=50)
 
